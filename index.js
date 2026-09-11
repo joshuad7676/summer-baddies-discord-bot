@@ -328,14 +328,15 @@ const commands = [
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addIntegerOption(o => o.setName('mult').setDescription('Luck multiplier 1-10 (1 = reset to normal)').setRequired(true).setMinValue(1).setMaxValue(10))
     .addIntegerOption(o => o.setName('minutes').setDescription('Duration 1-60 min (default 10)').setMinValue(1).setMaxValue(60)),
-  new SlashCommandBuilder().setName('game-abuse').setDescription('[STAFF] Fire a server-wide fun event')
+  new SlashCommandBuilder().setName('admin-abuse').setDescription('[STAFF] Fire a server-wide admin event')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('event').setDescription('Which event?').setRequired(true).addChoices(
       { name: 'Money Rain (+$2,500 everyone)', value: 'money-rain' },
       { name: 'Spin Party (+2 wheel spins everyone)', value: 'spin-party' },
       { name: 'Heal All', value: 'heal-all' },
       { name: 'Midnight (2 min)', value: 'midnight' },
-      { name: 'Daybreak', value: 'daybreak' })),
+      { name: 'Daybreak', value: 'daybreak' },
+      { name: 'Disco Party (+10 spins, $50M, snake dance)', value: 'disco' })),
   new SlashCommandBuilder().setName('game-money').setDescription('[STAFF] Give/Remove/Set Dinero')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('action').setDescription('Give/Remove/Set').setRequired(true).addChoices({ name: 'Give', value: 'Give' }, { name: 'Remove', value: 'Remove' }, { name: 'Set', value: 'Set' }))
@@ -837,7 +838,7 @@ client.on('interactionCreate', async (interaction) => {
           `**Levels + Fun**\n/rank, /leaderboard, /ping, /avatar, /server-info\n\n` +
           `**Applications**\n/apply (Admin, Content Creator, Tester, Community Manager, Director, Creative Director), /ticket-close\n\n` +
           `**Rules**\n/rules\n\n` +
-          `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /game-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos`,
+          `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /admin-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /give-everything, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos`,
           0xff5da2)], ephemeral: true
       });
     }
@@ -1017,7 +1018,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ----- STAFF -----
-    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'game-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
+    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
     if (staffOnly.includes(cmd)) {
       const staff = await requireStaff(interaction);
       if (!staff) return;
@@ -1063,7 +1064,7 @@ client.on('interactionCreate', async (interaction) => {
       const id = queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Queued for EVERYONE online', `\`${payload.type}\` → **${payload.weapon || payload.skin || payload.finisher}**\nQueue ID: \`${id}\`\nEvery live server gives it to all its players within ~5s. Broadcast expires after 3 min.`, 0x57f287)] });
     }
-    if (cmd === 'game-kick' || cmd === 'game-ban' || cmd === 'game-unban' || cmd === 'game-announce' || cmd === 'game-restart' || cmd === 'game-luck' || cmd === 'game-abuse' || cmd === 'game-money' || cmd === 'give-tokens' || cmd === 'give-spins') {
+    if (cmd === 'game-kick' || cmd === 'game-ban' || cmd === 'game-unban' || cmd === 'game-announce' || cmd === 'game-restart' || cmd === 'game-luck' || cmd === 'admin-abuse' || cmd === 'game-money' || cmd === 'give-tokens' || cmd === 'give-spins') {
       let payload = null;
       if (cmd === 'game-kick') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'kick', robloxUsername: u.name, robloxId: u.id, reason: interaction.options.getString('reason') || 'Kicked by staff', by: interaction.user.tag }; }
       if (cmd === 'game-ban') {
@@ -1083,7 +1084,7 @@ client.on('interactionCreate', async (interaction) => {
       if (cmd === 'give-tokens') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'give_tokens', action: interaction.options.getString('action', true), robloxUsername: u.name, robloxId: u.id, amount: interaction.options.getInteger('amount', true), by: interaction.user.tag }; }
       if (cmd === 'give-spins') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'give_spins', kind: interaction.options.getString('type', true), action: interaction.options.getString('action', true), robloxUsername: u.name, robloxId: u.id, amount: interaction.options.getInteger('amount', true), by: interaction.user.tag }; }
       if (cmd === 'game-luck') payload = { type: 'luck', mult: interaction.options.getInteger('mult', true), minutes: interaction.options.getInteger('minutes') || 10, by: interaction.user.tag, broadcast: true };
-      if (cmd === 'game-abuse') payload = { type: 'abuse', event: interaction.options.getString('event', true), by: interaction.user.tag, broadcast: true };
+      if (cmd === 'admin-abuse') payload = { type: 'abuse', event: interaction.options.getString('event', true), by: interaction.user.tag, broadcast: true };
       if (!payload || !payload.type) return interaction.reply({ content: '❌ Nothing to queue for this command.', ephemeral: true });
       queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Sent to game', `\`${payload.type}\` queued. Online servers pick it up in ~5s.`, 0x57f287)], ephemeral: true });
