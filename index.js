@@ -365,6 +365,13 @@ const commands = [
   new SlashCommandBuilder().setName('give-all-finisher').setDescription('[STAFF] Give a finisher to EVERYONE online in game')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('finisher').setDescription('Finisher name').setRequired(true).setAutocomplete(true)),
+  new SlashCommandBuilder().setName('give-all-tokens').setDescription('[STAFF] Give Tokens to EVERYONE online in game')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addIntegerOption(o => o.setName('amount').setDescription('Token amount').setRequired(true).setMinValue(1)),
+  new SlashCommandBuilder().setName('give-all-spins').setDescription('[STAFF] Give spins to EVERYONE online in game')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('type').setDescription('Hourly or Wheel spins').setRequired(true).addChoices({ name: 'Hourly', value: 'hourly' }, { name: 'Wheel', value: 'wheel' }))
+    .addIntegerOption(o => o.setName('amount').setDescription('Number of spins').setRequired(true).setMinValue(1)),
   new SlashCommandBuilder().setName('give-everything').setDescription('[STAFF] Give a player ALL weapons, skins and finishers')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true))
@@ -1020,7 +1027,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ----- STAFF -----
-    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
+    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
     if (staffOnly.includes(cmd)) {
       const staff = await requireStaff(interaction);
       if (!staff) return;
@@ -1065,6 +1072,13 @@ client.on('interactionCreate', async (interaction) => {
       if (cmd === 'give-all-skin') payload = { type: 'give_all_skin', weaponType: interaction.options.getString('weapontype', true), skin: interaction.options.getString('skin', true), by: interaction.user.tag, broadcast: true };
       const id = queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Queued for EVERYONE online', `\`${payload.type}\` → **${payload.weapon || payload.skin || payload.finisher}**\nQueue ID: \`${id}\`\nEvery live server gives it to all its players within ~5s. Broadcast expires after 3 min.`, 0x57f287)] });
+    }
+    if (cmd === 'give-all-tokens' || cmd === 'give-all-spins') {
+      let payload;
+      if (cmd === 'give-all-tokens') payload = { type: 'give_all_tokens', amount: interaction.options.getInteger('amount', true), by: interaction.user.tag, broadcast: true };
+      if (cmd === 'give-all-spins') payload = { type: 'give_all_spins', kind: interaction.options.getString('type', true), amount: interaction.options.getInteger('amount', true), by: interaction.user.tag, broadcast: true };
+      const id = queueCommand(payload);
+      return interaction.reply({ embeds: [embedBase('✅ Queued for EVERYONE online', `\`${payload.type}\` × **${interaction.options.getInteger('amount', true)}**\nQueue ID: \`${id}\`\nEvery live server gives it to all its players within ~5s. Broadcast expires after 3 min.`, 0x57f287)] });
     }
     if (cmd === 'game-kick' || cmd === 'game-ban' || cmd === 'game-unban' || cmd === 'game-announce' || cmd === 'game-restart' || cmd === 'game-luck' || cmd === 'admin-abuse' || cmd === 'game-money' || cmd === 'give-tokens' || cmd === 'give-spins') {
       let payload = null;
