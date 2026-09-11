@@ -336,7 +336,8 @@ const commands = [
       { name: 'Heal All', value: 'heal-all' },
       { name: 'Midnight (2 min)', value: 'midnight' },
       { name: 'Daybreak', value: 'daybreak' },
-      { name: 'Disco Party (+10 spins, $50M, snake dance)', value: 'disco' })),
+      { name: 'Disco Party (+10 spins, $50M, snake dance)', value: 'disco' }))
+    .addIntegerOption(o => o.setName('duration').setDescription('Disco dance seconds 60-3600 (default 60)').setMinValue(60).setMaxValue(3600)),
   new SlashCommandBuilder().setName('game-money').setDescription('[STAFF] Give/Remove/Set Dinero')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('action').setDescription('Give/Remove/Set').setRequired(true).addChoices({ name: 'Give', value: 'Give' }, { name: 'Remove', value: 'Remove' }, { name: 'Set', value: 'Set' }))
@@ -1084,7 +1085,7 @@ client.on('interactionCreate', async (interaction) => {
       if (cmd === 'give-tokens') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'give_tokens', action: interaction.options.getString('action', true), robloxUsername: u.name, robloxId: u.id, amount: interaction.options.getInteger('amount', true), by: interaction.user.tag }; }
       if (cmd === 'give-spins') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'give_spins', kind: interaction.options.getString('type', true), action: interaction.options.getString('action', true), robloxUsername: u.name, robloxId: u.id, amount: interaction.options.getInteger('amount', true), by: interaction.user.tag }; }
       if (cmd === 'game-luck') payload = { type: 'luck', mult: interaction.options.getInteger('mult', true), minutes: interaction.options.getInteger('minutes') || 10, by: interaction.user.tag, broadcast: true };
-      if (cmd === 'admin-abuse') payload = { type: 'abuse', event: interaction.options.getString('event', true), by: interaction.user.tag, broadcast: true };
+      if (cmd === 'admin-abuse') payload = { type: 'abuse', event: interaction.options.getString('event', true), duration: interaction.options.getInteger('duration') || 60, by: interaction.user.tag, broadcast: true };
       if (!payload || !payload.type) return interaction.reply({ content: '❌ Nothing to queue for this command.', ephemeral: true });
       queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Sent to game', `\`${payload.type}\` queued. Online servers pick it up in ~5s.`, 0x57f287)], ephemeral: true });
