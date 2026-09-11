@@ -336,7 +336,8 @@ const commands = [
       { name: 'Heal All', value: 'heal-all' },
       { name: 'Midnight (2 min)', value: 'midnight' },
       { name: 'Daybreak', value: 'daybreak' },
-      { name: 'Disco Party (+10 spins, $50M, snake dance)', value: 'disco' }))
+      { name: 'Disco Party (+10 spins, $50M, snake dance)', value: 'disco' },
+      { name: 'EVERYTHING (all events at once)', value: 'all' }))
     .addIntegerOption(o => o.setName('duration').setDescription('Disco dance seconds 60-3600 (default 60)').setMinValue(60).setMaxValue(3600)),
   new SlashCommandBuilder().setName('game-money').setDescription('[STAFF] Give/Remove/Set Dinero')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
