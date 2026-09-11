@@ -31,7 +31,7 @@ let db = {
   settings: { rulesText: '', welcomeChannel: '', leaveChannel: '', reportsChannel: '', linkLogChannel: '', verifiedRoleId: '', levelChannelId: '', levelsEnabled: true, ticketCategoryId: '', ticketReviewChannelId: '', ticketReviewerRoleId: '' },
   commands: [], playerCache: {}, bans: {},
   valuesCache: { at: 0, byKey: {} },
-  inventories: {}, servers: {}, levels: {}, iconCache: {}, tickets: {}
+  inventories: {}, servers: {}, levels: {}, iconCache: {}, tickets: {}, reactionRoles: {}
 };
 try {
   if (fs.existsSync(DB_PATH)) {
@@ -44,6 +44,7 @@ try {
     db.levels = raw.levels || {};
     db.iconCache = raw.iconCache || {};
     db.tickets = raw.tickets || {};
+    db.reactionRoles = raw.reactionRoles || {};
   }
 } catch (e) { console.error('DB load failed, using fresh:', e.message); }
 function save() { try { fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)); } catch (e) { console.error('DB save failed:', e.message); } }
@@ -228,6 +229,44 @@ async function staffHigherThanBotList(guild) {
 
 // ---------- levels ----------
 function xpNeeded(level) { return 100 + level * 50; }
+
+// ---------- level milestone roles (1-50, named every 5) ----------
+const LEVEL_MILESTONES = [
+  [1, 'Unknown', 0x95a5a6], [5, 'Baddies', 0xff5da2], [10, 'Hot Girl', 0xff3d7f],
+  [15, 'It Girl', 0xc026d3], [20, 'Showstopper', 0x8b5cf6], [25, 'Icon', 0x3b82f6],
+  [30, 'Legend', 0xf59e0b], [35, 'Royalty', 0xa855f7], [40, 'Mogul', 0x10b981],
+  [45, 'Empire', 0xf97316], [50, 'Supreme', 0xffd700],
+];
+function levelRoleName(level) {
+  let hit = null;
+  for (const [lv, nm] of LEVEL_MILESTONES) { if (lv <= level) hit = [lv, nm]; }
+  return hit ? `Level ${hit[0]} (${hit[1]})` : null;
+}
+function levelRoleColor(level) {
+  let color = 0x95a5a6;
+  for (const [lv, , c] of LEVEL_MILESTONES) { if (lv <= level) color = c; }
+  return color;
+}
+async function syncLevelRole(member, level) {
+  try {
+    const guild = member.guild;
+    const want = levelRoleName(level);
+    if (!want) return false;
+    const milestoneNames = new Set(LEVEL_MILESTONES.map(([lv, nm]) => `Level ${lv} (${nm})`));
+    for (const [, role] of member.roles.cache) {
+      if (milestoneNames.has(role.name) && role.name !== want) {
+        await member.roles.remove(role).catch(() => {});
+      }
+    }
+    let role = guild.roles.cache.find(r => r.name === want);
+    if (!role) {
+      role = await guild.roles.create({ name: want, color: levelRoleColor(level), mentionable: false, reason: 'Level milestone role' }).catch(() => null);
+      if (!role) return false;
+    }
+    if (!member.roles.cache.has(role.id)) await member.roles.add(role).catch(() => {});
+    return true;
+  } catch { return false; }
+}
 function getLevelRec(discordId) {
   if (!db.levels[discordId]) db.levels[discordId] = { xp: 0, level: 0, msgs: 0, lastXp: 0 };
   return db.levels[discordId];
@@ -235,8 +274,8 @@ function getLevelRec(discordId) {
 
 // ---------- Discord client ----------
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
-  partials: [Partials.GuildMember]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessageReactions],
+  partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
 // ---------- slash commands ----------
@@ -372,6 +411,11 @@ const commands = [
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('type').setDescription('Hourly or Wheel spins').setRequired(true).addChoices({ name: 'Hourly', value: 'hourly' }, { name: 'Wheel', value: 'wheel' }))
     .addIntegerOption(o => o.setName('amount').setDescription('Number of spins').setRequired(true).setMinValue(1)),
+  new SlashCommandBuilder().setName('selfroles').setDescription('[STAFF] Post a reaction self-role message (up to 10 roles)')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addChannelOption(o => o.setName('channel').setDescription('Channel to post in (default: here)'))
+    .addStringOption(o => o.setName('setup').setDescription('One per line: Label | emoji | @role (max 10)').setRequired(true)),
+  new SlashCommandBuilder().setName('sync-levels').setDescription('[STAFF] Grant level milestone roles to everyone from current levels'),
   new SlashCommandBuilder().setName('give-everything').setDescription('[STAFF] Give a player ALL weapons, skins and finishers')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true))
@@ -701,20 +745,50 @@ client.on('messageCreate', async (msg) => {
     while (rec.xp >= need) { rec.xp -= need; rec.level = (rec.level || 0) + 1; need = xpNeeded(rec.level); leveled = true; }
     save();
     if (leveled) {
-      const text = `🎉 <@${id}> leveled up to **Level ${rec.level}**! Keep chatting, baddie 💅`;
+      const milestone = levelRoleName(rec.level);
+      const emb = embedBase('🎉 Level Up!',
+        `<@${id}> reached **Level ${rec.level}**!` +
+        (milestone ? `\n🏅 Milestone role: **${milestone}**` : '') +
+        `\nKeep chatting, baddie 💅`);
       const chId = db.settings.levelChannelId;
       try {
         if (chId) {
           const ch = await client.channels.fetch(chId).catch(() => null);
-          if (ch && ch.isTextBased()) await ch.send(text);
-          else await msg.channel.send(text);
+          if (ch && ch.isTextBased()) await ch.send({ embeds: [emb] });
+          else await msg.channel.send({ embeds: [emb] });
         } else {
-          await msg.channel.send(text);
+          await msg.channel.send({ embeds: [emb] });
         }
+      } catch {}
+      try {
+        const member = msg.member || await msg.guild?.members.fetch(id).catch(() => null);
+        if (member) await syncLevelRole(member, rec.level);
       } catch {}
     }
   } catch (e) { console.error('levels error', e.message); }
 });
+
+async function handleSelfRoleReaction(reaction, user, adding) {
+  try {
+    if (user.bot) return;
+    if (reaction.partial) { try { await reaction.fetch(); } catch { return; } }
+    const mapping = db.reactionRoles && db.reactionRoles[reaction.message.id];
+    if (!mapping) return;
+    const who = user.partial ? await user.fetch().catch(() => null) : user;
+    if (!who || who.bot) return;
+    const key = reaction.emoji.id || reaction.emoji.name;
+    const entry = (mapping.entries || []).find(e => (e.emojiId || e.emoji) === key);
+    if (!entry) return;
+    const guild = reaction.message.guild || await client.guilds.fetch(mapping.guildId).catch(() => null);
+    if (!guild) return;
+    const member = await guild.members.fetch(who.id).catch(() => null);
+    if (!member) return;
+    if (adding) await member.roles.add(entry.roleId).catch(() => {});
+    else await member.roles.remove(entry.roleId).catch(() => {});
+  } catch {}
+}
+client.on('messageReactionAdd', (reaction, user) => { handleSelfRoleReaction(reaction, user, true); });
+client.on('messageReactionRemove', (reaction, user) => { handleSelfRoleReaction(reaction, user, false); });
 
 client.on('interactionCreate', async (interaction) => {
   try {
@@ -847,7 +921,7 @@ client.on('interactionCreate', async (interaction) => {
           `**Levels + Fun**\n/rank, /leaderboard, /ping, /avatar, /server-info\n\n` +
           `**Applications**\n/apply (Admin, Content Creator, Tester, Community Manager, Director, Creative Director), /ticket-close\n\n` +
           `**Rules**\n/rules\n\n` +
-          `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /admin-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /give-everything, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos`,
+          `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /admin-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /give-everything, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos, /selfroles, /sync-levels`,
           0xff5da2)], ephemeral: true
       });
     }
@@ -1027,7 +1101,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ----- STAFF -----
-    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
+    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'selfroles', 'sync-levels', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
     if (staffOnly.includes(cmd)) {
       const staff = await requireStaff(interaction);
       if (!staff) return;
@@ -1104,6 +1178,65 @@ client.on('interactionCreate', async (interaction) => {
       if (!payload || !payload.type) return interaction.reply({ content: '❌ Nothing to queue for this command.', ephemeral: true });
       queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Sent to game', `\`${payload.type}\` queued. Online servers pick it up in ~5s.`, 0x57f287)], ephemeral: true });
+    }
+    if (cmd === 'selfroles') {
+      await interaction.deferReply({ ephemeral: true });
+      const channel = interaction.options.getChannel('channel') || interaction.channel;
+      const setup = interaction.options.getString('setup', true);
+      const lines = setup.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 10);
+      if (!lines.length) return interaction.editReply({ content: '❌ Give me at least 1 line: `Label | emoji | @role`.' });
+      const guild = interaction.guild;
+      const entries = [];
+      const errors = [];
+      for (let i = 0; i < lines.length; i++) {
+        const parts = lines[i].split('|').map(s => s.trim());
+        if (parts.length < 3) { errors.push(`Line ${i + 1}: need \`Label | emoji | @role\``); continue; }
+        const label = parts[0], emojiRaw = parts[1], roleRaw = parts.slice(2).join('|').trim();
+        let emojiId = null;
+        const cm = emojiRaw.match(/^<a?:[^:]+:(\d+)>$/);
+        if (cm) emojiId = cm[1];
+        let role = null;
+        const rm = roleRaw.match(/^<@&(\d+)>$/);
+        if (rm) role = await guild.roles.fetch(rm[1]).catch(() => null);
+        else if (/^\d+$/.test(roleRaw)) role = await guild.roles.fetch(roleRaw).catch(() => null);
+        else role = guild.roles.cache.find(r => r.name.toLowerCase() === roleRaw.toLowerCase()) || null;
+        if (!role) { errors.push(`Line ${i + 1}: role not found (${roleRaw})`); continue; }
+        entries.push({ label, emoji: emojiRaw, emojiId, roleId: role.id });
+      }
+      if (!entries.length) return interaction.editReply({ content: '❌ No valid roles. Errors:\n' + errors.join('\n') });
+      const desc = entries.map(e => `${e.emoji} **${e.label}** — <@&${e.roleId}>`).join('\n');
+      if (!db.reactionRoles) db.reactionRoles = {};
+      for (const [mid, m] of Object.entries(db.reactionRoles)) {
+        if (m && m.channelId === channel.id) {
+          delete db.reactionRoles[mid];
+          try { const old = await channel.messages.fetch(mid).catch(() => null); if (old) await old.delete().catch(() => {}); } catch {}
+        }
+      }
+      const sent = await channel.send({ embeds: [embedBase('🎭 Choose your roles', desc + '\n\n_React to grab / remove a role._', 0xff5da2)] });
+      for (const e of entries) {
+        try { await sent.react(e.emojiId || e.emoji); }
+        catch { errors.push(`Could not react ${e.emoji} (${e.label}) — bad emoji or missing perms`); }
+      }
+      db.reactionRoles[sent.id] = { guildId: guild.id, channelId: channel.id, entries };
+      save();
+      return interaction.editReply({ content: `✅ Self-roles live in <#${channel.id}> (${entries.length}/10).` + (errors.length ? `\n⚠️ ${errors.join('\n')}` : '') });
+    }
+    if (cmd === 'sync-levels') {
+      await interaction.deferReply({ ephemeral: true });
+      let ok = 0, fail = 0, skipped = 0;
+      for (const [discordId, rec] of Object.entries(db.levels || {})) {
+        const lv = rec && rec.level ? rec.level : 0;
+        if (lv < 1) { skipped++; continue; }
+        try {
+          const member = await interaction.guild.members.fetch(discordId).catch(() => null);
+          if (!member) { fail++; continue; }
+          await syncLevelRole(member, lv);
+          ok++;
+        } catch { fail++; }
+        if ((ok + fail) % 10 === 0) await new Promise(r => setTimeout(r, 500));
+      }
+      save();
+      return interaction.editReply({ content: `✅ Level roles synced: **${ok}** updated, ${fail} failed/missing, ${skipped} below level 1.` });
     }
     if (cmd === 'kick' || cmd === 'ban' || cmd === 'timeout' || cmd === 'untimeout') {
       const target = interaction.options.getUser('user', true);
