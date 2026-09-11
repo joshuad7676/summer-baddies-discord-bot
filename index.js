@@ -165,6 +165,7 @@ async function buildItemEmbed(type, name) {
 
 // ---------- command queue for Roblox ----------
 function queueCommand(cmd) {
+  if (!cmd || typeof cmd !== 'object' || !cmd.type) throw new Error('refusing to queue empty command (bug: payload was null)');
   cmd.id = 'cmd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   cmd.createdAt = Date.now();
   db.commands.push(cmd);
@@ -361,6 +362,15 @@ const commands = [
   new SlashCommandBuilder().setName('give-all-finisher').setDescription('[STAFF] Give a finisher to EVERYONE online in game')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('finisher').setDescription('Finisher name').setRequired(true).setAutocomplete(true)),
+  new SlashCommandBuilder().setName('give-everything').setDescription('[STAFF] Give a player ALL weapons, skins and finishers')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true))
+    .addStringOption(o => o.setName('category').setDescription('What to grant (default: everything)')
+      .addChoices(
+        { name: 'Everything', value: 'everything' },
+        { name: 'Weapons only', value: 'weapons' },
+        { name: 'Skins only', value: 'skins' },
+        { name: 'Finishers only', value: 'finishers' })),
   new SlashCommandBuilder().setName('kick').setDescription('[STAFF] Kick a Discord member (+ game if linked)')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addUserOption(o => o.setName('user').setDescription('Member').setRequired(true))
@@ -1007,7 +1017,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ----- STAFF -----
-    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'game-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
+    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'game-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
     if (staffOnly.includes(cmd)) {
       const staff = await requireStaff(interaction);
       if (!staff) return;
@@ -1022,6 +1032,15 @@ client.on('interactionCreate', async (interaction) => {
       if (cmd === 'give-skin') payload = { type: 'give_skin', robloxUsername: r.name, robloxId: r.id, weaponType: interaction.options.getString('weapontype', true), skin: interaction.options.getString('skin', true), by: interaction.user.tag };
       const id = queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Queued for game', `\`${payload.type}\` → **${r.name}**\nQueue ID: \`${id}\`\nGame servers poll every ~5s and grant it if the player is online. If offline, it stays queued 10 min.`, 0x57f287)] });
+    }
+    if (cmd === 'give-everything') {
+      const username = interaction.options.getString('username', true);
+      const r = await robloxUserId(username);
+      if (!r) return interaction.reply({ content: '❌ Roblox user not found.', ephemeral: true });
+      const category = interaction.options.getString('category') || 'everything';
+      const payload = { type: 'give_everything', robloxUsername: r.name, robloxId: r.id, category, by: interaction.user.tag };
+      const id = queueCommand(payload);
+      return interaction.reply({ embeds: [embedBase('✅ Queued give-everything', `\`${category}\` → **${r.name}**\nQueue ID: \`${id}\`\nThe live server holding them grants all weapons/skins/finishers (skips dupes) and confirms in game chat.`, 0x57f287)] });
     }
     if (cmd === 'player-data') {
       const username = interaction.options.getString('username', true);
@@ -1044,8 +1063,6 @@ client.on('interactionCreate', async (interaction) => {
       const id = queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Queued for EVERYONE online', `\`${payload.type}\` → **${payload.weapon || payload.skin || payload.finisher}**\nQueue ID: \`${id}\`\nEvery live server gives it to all its players within ~5s. Broadcast expires after 3 min.`, 0x57f287)] });
     }
-    if (cmd === 'game-luck') payload = { type: 'luck', mult: interaction.options.getInteger('mult', true), minutes: interaction.options.getInteger('minutes') || 10, by: interaction.user.tag, broadcast: true };
-    if (cmd === 'game-abuse') payload = { type: 'abuse', event: interaction.options.getString('event', true), by: interaction.user.tag, broadcast: true };
     if (cmd === 'game-kick' || cmd === 'game-ban' || cmd === 'game-unban' || cmd === 'game-announce' || cmd === 'game-restart' || cmd === 'game-luck' || cmd === 'game-abuse' || cmd === 'game-money' || cmd === 'give-tokens' || cmd === 'give-spins') {
       let payload = null;
       if (cmd === 'game-kick') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'kick', robloxUsername: u.name, robloxId: u.id, reason: interaction.options.getString('reason') || 'Kicked by staff', by: interaction.user.tag }; }
@@ -1065,6 +1082,9 @@ client.on('interactionCreate', async (interaction) => {
       if (cmd === 'game-money') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'money', action: interaction.options.getString('action', true), robloxUsername: u.name, robloxId: u.id, amount: interaction.options.getInteger('amount', true), by: interaction.user.tag }; }
       if (cmd === 'give-tokens') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'give_tokens', action: interaction.options.getString('action', true), robloxUsername: u.name, robloxId: u.id, amount: interaction.options.getInteger('amount', true), by: interaction.user.tag }; }
       if (cmd === 'give-spins') { const u = await robloxUserId(interaction.options.getString('username', true)); if (!u) return interaction.reply({ content: '❌ Not found.', ephemeral: true }); payload = { type: 'give_spins', kind: interaction.options.getString('type', true), action: interaction.options.getString('action', true), robloxUsername: u.name, robloxId: u.id, amount: interaction.options.getInteger('amount', true), by: interaction.user.tag }; }
+      if (cmd === 'game-luck') payload = { type: 'luck', mult: interaction.options.getInteger('mult', true), minutes: interaction.options.getInteger('minutes') || 10, by: interaction.user.tag, broadcast: true };
+      if (cmd === 'game-abuse') payload = { type: 'abuse', event: interaction.options.getString('event', true), by: interaction.user.tag, broadcast: true };
+      if (!payload || !payload.type) return interaction.reply({ content: '❌ Nothing to queue for this command.', ephemeral: true });
       queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('✅ Sent to game', `\`${payload.type}\` queued. Online servers pick it up in ~5s.`, 0x57f287)], ephemeral: true });
     }
