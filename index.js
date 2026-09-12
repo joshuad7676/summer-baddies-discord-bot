@@ -280,6 +280,244 @@ const client = new Client({
 
 // ---------- slash commands ----------
 const ADMIN_PERMS = '0';
+
+// ---------- role ladder + server layout (setup-roles / setup-layout / reset-layout) ----------
+const P = PermissionFlagsBits;
+const BASE_CHAT_VOICE = [
+  P.ViewChannel, P.SendMessages, P.EmbedLinks, P.AttachFiles, P.ReadMessageHistory,
+  P.AddReactions, P.Connect, P.Speak, P.Stream, P.UseVAD, P.UseApplicationCommands, P.ChangeNickname,
+];
+// Exact ladder top-to-bottom. Hoist: 1-10 true, 11-14 false (spec left 11-12 ambiguous).
+// Never grants ManageGuild/ManageRoles/ManageChannels below Co-Owner.
+const ROLE_LADDER = [
+  { name: '♛ Owner',             color: '#FF3131', hoist: true,  perms: ['Administrator'] },
+  { name: '♕ Co-Owner',          color: '#FF8C1A', hoist: true,  perms: ['Administrator'] },
+  { name: '★ Director',          color: '#FFD700', hoist: true,  perms: ['BanMembers', 'KickMembers', 'ModerateMembers', 'ManageMessages'] },
+  { name: '✦ Community Manager', color: '#9D4EDD', hoist: true,  perms: ['BanMembers', 'KickMembers', 'ModerateMembers', 'ManageMessages'] },
+  { name: '❖ Head Admin',        color: '#FF4D8D', hoist: true,  perms: ['BanMembers', 'KickMembers', 'ModerateMembers', 'ManageMessages'] },
+  { name: '♠ Admin',             color: '#FF85A2', hoist: true,  perms: ['KickMembers', 'ModerateMembers', 'ManageMessages'] },
+  { name: '♣ Head Moderator',    color: '#00C2A8', hoist: true,  perms: ['KickMembers', 'ModerateMembers', 'ManageMessages'] },
+  { name: '♧ Moderator',         color: '#5BC0EB', hoist: true,  perms: ['ModerateMembers', 'ManageMessages'] },
+  { name: '♥ Trial Moderator',   color: '#808080', hoist: true,  perms: ['ModerateMembers', 'ManageMessages'] },
+  { name: '♦ Helper',            color: '#7BED9F', hoist: true,  perms: ['ModerateMembers'] },
+  { name: '</> Developer',       color: '#5865F2', hoist: false, perms: [] },
+  { name: '♪ Event Team',        color: '#FF9FF3', hoist: false, perms: [] },
+  { name: '☾ VIP',               color: '#F47FFF', hoist: false, perms: [] },
+  { name: '♡ Member',            color: '#B0BEC5', hoist: false, perms: [] },
+];
+function ladderPerms(def) {
+  if (def.perms.includes('Administrator')) return [P.Administrator];
+  const out = [...BASE_CHAT_VOICE];
+  for (const k of def.perms) { if (P[k]) out.push(P[k]); }
+  return out;
+}
+function isGuildOwner(interaction) {
+  return !!(interaction.guild && interaction.user && interaction.guild.ownerId === interaction.user.id);
+}
+async function requireOwner(interaction) {
+  if (isGuildOwner(interaction)) return true;
+  try { await interaction.reply({ content: '❌ Owner only — only the server owner can use this.', ephemeral: true }); } catch {}
+  return false;
+}
+function sanitizeTextChannelName(n) {
+  let s = String(n || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '').replace(/-+/g, '-').replace(/^[-_]+|[-_]+$/g, '');
+  return s.slice(0, 100) || 'channel';
+}
+// DSL: "Category: Name" / "#channel (optional topic)" / "Voice: Name". Bullets (-,*,>) + // comments tolerated.
+function parseLayoutDescription(text) {
+  const layout = [];
+  const warnings = [];
+  const ensureCategory = (name) => {
+    const clean = String(name || '').trim().slice(0, 90) || 'General';
+    let c = layout.find(x => x.category.toLowerCase() === clean.toLowerCase());
+    if (!c) { c = { category: clean, channels: [] }; layout.push(c); }
+    return c;
+  };
+  for (const raw of String(text || '').split('\n')) {
+    let line = String(raw || '').trim().replace(/^[-*•>]+\s*/, '').trim();
+    if (!line || line.startsWith('//')) continue;
+    let m;
+    if ((m = line.match(/^category\s*:\s*(.+)$/i))) { ensureCategory(m[1]); continue; }
+    if ((m = line.match(/^voice\s*:\s*(.+?)(?:\s*\(([^)]*)\))?$/i))) {
+      const cur = ensureCategory(currentName() || 'Voice Lounges');
+      cur.channels.push({ name: String(m[1]).trim().slice(0, 100) || 'Lounge', type: 'voice', topic: '' });
+      continue;
+    }
+    if ((m = line.match(/^#([a-z0-9\-_ ]+?)(?:\s*\(([^)]*)\))?$/i))) {
+      const cur = ensureCategory(currentName() || 'General');
+      cur.channels.push({ name: sanitizeTextChannelName(m[1]), type: 'text', topic: String(m[2] || '').slice(0, 1024) });
+      continue;
+    }
+    warnings.push(`Skipped: "${String(raw).trim().slice(0, 80)}" (use "Category: Name", "#channel (topic)", "Voice: Name")`);
+  }
+  function currentName() { return layout.length ? layout[layout.length - 1].category : null; }
+  // NOTE: Voice:/text lines before any Category: fall into a default bucket via currentName() fallback above.
+  return { layout, warnings };
+}
+function getBaddiesPreset() {
+  return [
+    { category: '🌸・INFO', channels: [
+      { name: 'welcome', type: 'text', topic: 'Welcome baddies! Link with /link and read the rules' },
+      { name: 'rules', type: 'text', topic: 'Server rules — read before chatting' },
+      { name: 'announcements', type: 'text', topic: 'Official news only (staff posts)' },
+    ]},
+    { category: '💬・GENERAL', channels: [
+      { name: 'general', type: 'text', topic: 'Main chat — be kind' },
+      { name: 'introductions', type: 'text', topic: 'Say hi, baddie!' },
+      { name: 'bot-commands', type: 'text', topic: 'Bot spam here: /value /rank /search-skins …' },
+      { name: 'suggestions', type: 'text', topic: 'Suggest ideas for the game + server' },
+    ]},
+    { category: '💰・TRADING', channels: [
+      { name: 'trade-list', type: 'text', topic: 'Post your trades (item + demand)' },
+      { name: 'trade-history', type: 'text', topic: 'Completed trades — proof + vouches' },
+      { name: 'value-discussion', type: 'text', topic: 'Talk RAP, demand and trends' },
+    ]},
+    { category: '👯・CREWS', channels: [
+      { name: 'crew-recruitment', type: 'text', topic: 'Recruit members for your crew' },
+      { name: 'crew-showcase', type: 'text', topic: 'Show off your crew' },
+      { name: 'looking-for-crew', type: 'text', topic: 'Find a crew to join' },
+    ]},
+    { category: '🎉・EVENTS', channels: [
+      { name: 'events', type: 'text', topic: 'Upcoming events (staff posts)' },
+      { name: 'giveaways', type: 'text', topic: 'Giveaways — follow the rules on each post' },
+      { name: 'event-winners', type: 'text', topic: 'Winners get posted here' },
+    ]},
+    { category: '🎟️・TICKETS & SUPPORT', channels: [
+      { name: 'support', type: 'text', topic: 'Ask staff for help' },
+      { name: 'apply-here', type: 'text', topic: 'How to apply: use /apply (Admin, Tester, …)' },
+    ]},
+    { category: '📸・MEDIA', channels: [
+      { name: 'media', type: 'text', topic: 'Screenshots + clips' },
+      { name: 'clips', type: 'text', topic: 'Best gameplay clips' },
+      { name: 'fan-art', type: 'text', topic: 'Share your art' },
+    ]},
+    { category: '🔊・VOICE LOUNGES', channels: [
+      { name: 'General Lounge', type: 'voice', topic: '' },
+      { name: 'Trading Lounge', type: 'voice', topic: '' },
+      { name: 'Event Stage', type: 'voice', topic: '' },
+      { name: 'Music Vibes', type: 'voice', topic: '' },
+    ]},
+  ];
+}
+const READONLY_CHANNELS = new Set(['welcome', 'rules', 'announcements', 'events', 'giveaways', 'event-winners']);
+function ladderRoleMap(guild) {
+  const map = new Map();
+  for (const def of ROLE_LADDER) {
+    const r = guild.roles.cache.find(x => x.name === def.name);
+    if (r) map.set(def.name, r);
+  }
+  return map;
+}
+async function setupRoleLadder(guild) {
+  const me = await guild.members.fetchMe();
+  if (!me.permissions.has(P.ManageRoles)) throw new Error('I need the **Manage Roles** permission.');
+  const botTop = me.roles.highest.position;
+  await guild.roles.fetch();
+  const created = [], skipped = [], failed = [];
+  for (const def of [...ROLE_LADDER].reverse()) { // bottom-up so top ends highest
+    const existing = guild.roles.cache.find(r => r.name === def.name);
+    if (existing) { skipped.push(def.name); continue; }
+    try {
+      await guild.roles.create({ name: def.name, color: def.color, hoist: def.hoist, mentionable: false, permissions: ladderPerms(def), reason: 'setup-roles ladder' });
+      created.push(def.name);
+    } catch (e) { failed.push(`${def.name}: ${String(e.message || e).slice(0, 120)}`); }
+  }
+  let orderWarning = '';
+  try {
+    await guild.roles.fetch();
+    const targets = [];
+    ROLE_LADDER.forEach((def, i) => {
+      const r = guild.roles.cache.find(x => x.name === def.name);
+      if (!r || !r.editable) return;
+      const pos = botTop - 1 - i; // Owner just below bot
+      if (pos >= 1) targets.push({ role: r.id, position: pos });
+    });
+    if (targets.length) await guild.roles.setPositions(targets);
+    if (botTop <= ROLE_LADDER.length) orderWarning = `Bot role is very low (position ${botTop}) — drag the bot role above the ladder in Server Settings → Roles, then re-run /setup-roles to fix ordering.`;
+  } catch (e) { orderWarning = 'Could not enforce ordering (missing perms or hierarchy): ' + String(e.message || e).slice(0, 150); }
+  return { created, skipped, failed, orderWarning, botTop };
+}
+async function applyLayout(guild, layout) {
+  const me = await guild.members.fetchMe();
+  if (!me.permissions.has(P.ManageChannels)) throw new Error('I need the **Manage Channels** permission.');
+  await guild.roles.fetch().catch(() => {});
+  await guild.channels.fetch().catch(() => {});
+  const everyone = guild.roles.everyone;
+  const byName = ladderRoleMap(guild);
+  const senior = ['♛ Owner', '♕ Co-Owner', '★ Director', '✦ Community Manager'].map(n => byName.get(n)).filter(Boolean);
+  const createdCats = [], skippedCats = [], createdChs = [], skippedChs = [], failed = [];
+  for (const block of layout) {
+    const catName = String(block.category || '').trim().slice(0, 90) || 'General';
+    let cat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name.toLowerCase() === catName.toLowerCase()) || null;
+    if (cat) skippedCats.push(catName);
+    else {
+      try {
+        cat = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory, reason: 'setup-layout' });
+        createdCats.push(catName);
+      } catch (e) { failed.push(`${catName}: ${String(e.message || e).slice(0, 120)}`); continue; }
+    }
+    for (const ch of (block.channels || [])) {
+      const isVoice = ch.type === 'voice';
+      const wantName = isVoice ? String(ch.name || '').trim().slice(0, 100) : sanitizeTextChannelName(ch.name);
+      const wantType = isVoice ? ChannelType.GuildVoice : ChannelType.GuildText;
+      const dupe = guild.channels.cache.find(c => c.type === wantType && c.name.toLowerCase() === wantName.toLowerCase() && (!c.parentId || (cat && c.parentId === cat.id)));
+      if (dupe) { skippedChs.push('#' + wantName); continue; }
+      try {
+        const overwrites = [];
+        if (!isVoice && READONLY_CHANNELS.has(wantName)) {
+          overwrites.push({ id: everyone.id, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages] });
+          for (const sr of senior) overwrites.push({ id: sr.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] });
+        } else if (!isVoice) {
+          overwrites.push({ id: everyone.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory] });
+        } else {
+          overwrites.push({ id: everyone.id, allow: [P.ViewChannel, P.Connect, P.Speak] });
+        }
+        const opts = { name: wantName, type: wantType, parent: cat ? cat.id : null, permissionOverwrites: overwrites, reason: 'setup-layout' };
+        if (!isVoice && ch.topic) opts.topic = String(ch.topic).slice(0, 1024);
+        await guild.channels.create(opts);
+        createdChs.push((isVoice ? '🔊 ' : '#') + wantName);
+      } catch (e) { failed.push(`${wantName}: ${String(e.message || e).slice(0, 120)}`); }
+    }
+  }
+  // auto-wire common settings when empty
+  const wired = [];
+  try {
+    const findText = (n) => guild.channels.cache.find(c => (c.type === ChannelType.GuildText) && c.name.toLowerCase() === n);
+    const welcome = findText('welcome');
+    if (welcome && !db.settings.welcomeChannel) { db.settings.welcomeChannel = welcome.id; wired.push('welcome → #welcome'); }
+    const support = findText('support');
+    if (support && !db.settings.reportsChannel) { db.settings.reportsChannel = support.id; wired.push('reports → #support'); }
+    const ticketCat = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && /ticket|support/i.test(c.name || ''));
+    if (ticketCat && !db.settings.ticketCategoryId) { db.settings.ticketCategoryId = ticketCat.id; wired.push('ticket category → ' + ticketCat.name); }
+    if (wired.length) save();
+  } catch {}
+  return { createdCats, skippedCats, createdChs, skippedChs, failed, wired };
+}
+async function resetGuildLayout(guild) {
+  const me = await guild.members.fetchMe();
+  const botTop = me.roles.highest.position;
+  const delCh = [], failCh = [], delRoles = [], keptRoles = [];
+  await guild.channels.fetch().catch(() => {});
+  await guild.roles.fetch().catch(() => {});
+  const chans = [...guild.channels.cache.values()];
+  // delete leaf channels first, categories last (so children don't get orphaned mid-loop)
+  chans.sort((a, b) => (a.type === ChannelType.GuildCategory ? 1 : 0) - (b.type === ChannelType.GuildCategory ? 1 : 0));
+  for (const ch of chans) {
+    if (!ch.deletable) { failCh.push(`${ch.name} (no perm/hierarchy)`); continue; }
+    try { await ch.delete('reset-layout wipe'); delCh.push(ch.name); } catch (e) { failCh.push(`${ch.name}: ${String(e.message || e).slice(0, 100)}`); }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  const roles = [...guild.roles.cache.values()].sort((a, b) => a.position - b.position);
+  for (const role of roles) {
+    if (role.id === guild.roles.everyone.id) { keptRoles.push('@everyone'); continue; }
+    if (role.managed) { keptRoles.push(`${role.name} (managed/bot)`); continue; }
+    if (role.position >= botTop) { keptRoles.push(`${role.name} (at/above bot)`); continue; }
+    if (!role.editable) { keptRoles.push(`${role.name} (not editable)`); continue; }
+    try { await role.delete('reset-layout wipe'); delRoles.push(role.name); } catch (e) { keptRoles.push(`${role.name} (delete failed)`); }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return { delCh, failCh, delRoles, keptRoles };
+}
 const commands = [
   new SlashCommandBuilder().setName('link').setDescription('Link your Roblox account (type your Roblox username)')
     .addStringOption(o => o.setName('username').setDescription('Your Roblox username').setRequired(true)),
@@ -480,6 +718,17 @@ const commands = [
     .addRoleOption(o => o.setName('reviewer').setDescription('Role that can VIEW ticket channels').setRequired(true)),
   new SlashCommandBuilder().setName('tickets').setDescription('[STAFF] List open application tickets')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false),
+  new SlashCommandBuilder().setName('setup-roles').setDescription('[OWNER] Create the 14-role staff ladder (skips existing)')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false),
+  new SlashCommandBuilder().setName('setup-layout').setDescription('[STAFF] Build server channels from DSL description or baddies preset')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('preset').setDescription('Built-in preset (default: baddies when no description)').addChoices({ name: 'baddies', value: 'baddies' }))
+    .addStringOption(o => o.setName('description').setDescription('DSL lines: "Category: X", "#channel (topic)", "Voice: Y"')),
+  new SlashCommandBuilder().setName('reset-layout').setDescription('[OWNER] DANGER: wipe channels + below-bot roles, then apply layout')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('confirm').setDescription('Type CONFIRM exactly to proceed').setRequired(true))
+    .addStringOption(o => o.setName('preset').setDescription('Preset to apply after wipe (default: baddies)').addChoices({ name: 'baddies', value: 'baddies' }))
+    .addStringOption(o => o.setName('description').setDescription('Optional DSL layout to apply after wipe')),
 ].map(c => c.toJSON());
 
 async function registerCommands() {
@@ -921,7 +1170,8 @@ client.on('interactionCreate', async (interaction) => {
           `**Levels + Fun**\n/rank, /leaderboard, /ping, /avatar, /server-info\n\n` +
           `**Applications**\n/apply (Admin, Content Creator, Tester, Community Manager, Director, Creative Director), /ticket-close\n\n` +
           `**Rules**\n/rules\n\n` +
-          `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /admin-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /give-everything, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos, /selfroles, /sync-levels`,
+           `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /admin-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /give-everything, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos, /selfroles, /sync-levels, /setup-layout\n\n` +
+           `**Owner only**\n/setup-roles (14-role ladder), /reset-layout (wipe + rebuild, needs CONFIRM)`,
           0xff5da2)], ephemeral: true
       });
     }
@@ -1101,10 +1351,91 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ----- STAFF -----
-    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'selfroles', 'sync-levels', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos'];
+    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'selfroles', 'sync-levels', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos', 'setup-layout'];
     if (staffOnly.includes(cmd)) {
       const staff = await requireStaff(interaction);
       if (!staff) return;
+    }
+    // ----- OWNER-ONLY: setup-roles / reset-layout (+ setup-layout handler lives below) -----
+    if (cmd === 'setup-roles') {
+      if (!await requireOwner(interaction)) return;
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const r = await setupRoleLadder(interaction.guild);
+        const lines = [
+          `✅ Created (${r.created.length}): ${r.created.join(', ') || '—'}`,
+          `⏭️ Skipped existing (${r.skipped.length}): ${r.skipped.join(', ') || '—'}`,
+        ];
+        if (r.failed.length) lines.push(`❌ Failed: ${r.failed.join(' | ')}`);
+        if (r.orderWarning) lines.push(`⚠️ ${r.orderWarning}`);
+        lines.push(`\nHoist: top 10 ON, bottom 4 OFF. No Manage Server/Roles below Co-Owner. Bot top position: ${r.botTop}.`);
+        return interaction.editReply({ embeds: [embedBase('♛ Role ladder done', lines.join('\n').slice(0, 3900), 0xffd700)] });
+      } catch (e) { return interaction.editReply({ content: '❌ ' + String(e.message || e).slice(0, 300) }); }
+    }
+    if (cmd === 'setup-layout') {
+      // staff gate already passed above
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const preset = interaction.options.getString('preset');
+        const desc = interaction.options.getString('description');
+        let layout = [];
+        const warnings = [];
+        if (preset === 'baddies' || (!preset && !desc)) layout.push(...getBaddiesPreset());
+        if (desc) {
+          const parsed = parseLayoutDescription(desc);
+          layout.push(...parsed.layout);
+          warnings.push(...parsed.warnings);
+          if (!parsed.layout.length) warnings.push('Description parsed to 0 channels — check DSL format.');
+        }
+        if (!layout.length) return interaction.editReply({ content: '❌ Give me a preset (`baddies`) or a description.\nDSL:\n```\nCategory: Info\n#rules (Server rules)\n#announcements (Official news)\nVoice: Lobby\n```' });
+        const res = await applyLayout(interaction.guild, layout);
+        const lines = [
+          `Categories: +${res.createdCats.length} created, ${res.skippedCats.length} skipped`,
+          `Channels: +${res.createdChs.length} created${res.createdChs.length ? ` (${res.createdChs.slice(0, 12).join(', ')})` : ''}, ${res.skippedChs.length} skipped`,
+        ];
+        if (res.wired.length) lines.push(`🔌 Auto-wired: ${res.wired.join(' • ')}`);
+        if (warnings.length) lines.push(`⚠️ DSL: ${warnings.slice(0, 5).join(' | ')}`);
+        if (res.failed.length) lines.push(`❌ Failed: ${res.failed.slice(0, 5).join(' | ')}`);
+        lines.push('\nRead-only: welcome/rules/announcements/events/giveaways/event-winners (send = Owner→Community Manager). Others open to @everyone.');
+        return interaction.editReply({ embeds: [embedBase('🏗️ Layout applied', lines.join('\n').slice(0, 3900), 0x57f287)] });
+      } catch (e) { return interaction.editReply({ content: '❌ ' + String(e.message || e).slice(0, 300) }); }
+    }
+    if (cmd === 'reset-layout') {
+      if (!await requireOwner(interaction)) return;
+      const confirm = interaction.options.getString('confirm', true);
+      if (confirm !== 'CONFIRM') return interaction.reply({ content: '❌ Type `CONFIRM` exactly (all caps) to proceed. Nothing was deleted.', ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const wipe = await resetGuildLayout(interaction.guild);
+        const preset = interaction.options.getString('preset');
+        const desc = interaction.options.getString('description');
+        let layout = [];
+        const warnings = [];
+        if (desc) {
+          const parsed = parseLayoutDescription(desc);
+          layout.push(...parsed.layout);
+          warnings.push(...parsed.warnings);
+        }
+        if (preset === 'baddies' || (!preset && !desc)) layout.push(...getBaddiesPreset());
+        let applyLines = ['No layout applied (no preset/description given).'];
+        if (layout.length) {
+          const res = await applyLayout(interaction.guild, layout);
+          applyLines = [
+            `Rebuilt: +${res.createdCats.length} categories, +${res.createdChs.length} channels, ${res.skippedChs.length} skipped.`,
+            ...(res.wired.length ? [`🔌 Auto-wired: ${res.wired.join(' • ')}`] : []),
+            ...(res.failed.length ? [`❌ Rebuild failures: ${res.failed.slice(0, 5).join(' | ')}`] : []),
+          ];
+        }
+        const lines = [
+          `🗑️ Channels deleted (${wipe.delCh.length}): ${wipe.delCh.slice(0, 10).join(', ') || '—'}`,
+          ...(wipe.failCh.length ? [`⚠️ Channels kept: ${wipe.failCh.slice(0, 5).join(' | ')}`] : []),
+          `🗑️ Roles deleted (${wipe.delRoles.length}): ${wipe.delRoles.slice(0, 10).join(', ') || '—'}`,
+          `🛡️ Roles kept (${wipe.keptRoles.length}): ${wipe.keptRoles.slice(0, 8).join(' | ') || '—'}`,
+          ...applyLines,
+          ...warnings.slice(0, 3).map(w => `⚠️ ${w}`),
+        ];
+        return interaction.editReply({ embeds: [embedBase('💥 Reset complete', lines.join('\n').slice(0, 3900), 0xed4245)] });
+      } catch (e) { return interaction.editReply({ content: '❌ ' + String(e.message || e).slice(0, 300) }); }
     }
     if (cmd === 'give-weapon' || cmd === 'give-skin' || cmd === 'give-finisher') {
       const username = interaction.options.getString('username', true);
