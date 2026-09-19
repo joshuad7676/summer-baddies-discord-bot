@@ -649,7 +649,7 @@ const commands = [
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('type').setDescription('Hourly or Wheel spins').setRequired(true).addChoices({ name: 'Hourly', value: 'hourly' }, { name: 'Wheel', value: 'wheel' }))
     .addIntegerOption(o => o.setName('amount').setDescription('Number of spins').setRequired(true).setMinValue(1)),
-    new SlashCommandBuilder().setName('selfroles').setDescription('[STAFF] Post a reaction self-role message (up to 10 roles)')
+      new SlashCommandBuilder().setName('selfroles').setDescription('[STAFF] Post a reaction self-role message (up to 10 roles)')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('setup').setDescription('One per line: Label | emoji | @role (max 10)').setRequired(true))
     .addChannelOption(o => o.setName('channel').setDescription('Channel to post in (default: here)')),
