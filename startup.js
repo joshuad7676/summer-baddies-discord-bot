@@ -16,93 +16,62 @@ if (selfrolesStart !== -1) {
     const reordered = block
       .replace(setup[0], '')
       .replace(channel[0], '')
-      .replace(/(\.setDMPermission\(false\)|\.setDefaultMemberPermissions\([^)]*\))/, `$1\n     ${setup[0]}\n     ${channel[0]}`);
+      .replace(/(\.setDMPermission\(false\)|\.setDefaultMemberPermissions\([^)]*\))/, '$1\n     ' + setup[0] + '\n     ' + channel[0]);
     source = source.slice(0, selfrolesStart) + reordered + source.slice(end);
-    console.log('[startup] Fixed /selfroles option order before loading bot.');
-  } else {
-    console.log('[startup] /selfroles option order already correct.');
   }
 }
 
-// Add /create-roles if it is not already present.
-if (!source.includes("setName('create-roles')")) {
-  const anchor = "  new SlashCommandBuilder().setName('sync-levels').setDescription('[STAFF] Grant level milestone roles to everyone from current levels'),";
-  const command = "  new SlashCommandBuilder().setName('create-roles').setDescription('[STAFF] Create colored roles')\n" +
-    "    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
-    "    .addStringOption(o => o.setName('setup').setDescription('One per line: Name | #hex-color').setRequired(true)),\n";
+// Add a friendly security explainer command.
+if (!source.includes("setName('link-safety')")) {
+  const anchor = "  new SlashCommandBuilder().setName('link').setDescription('Link your Roblox account (type your Roblox username)')";
+  const command = "  new SlashCommandBuilder().setName('link-safety').setDescription('Learn how safe Roblox linking works'),\n";
   if (source.includes(anchor)) source = source.replace(anchor, command + anchor);
 }
 
-// Add autorole and role-all slash commands exactly once.
-if (!source.includes("setName('setup-autorole')")) {
-  const anchor = "  new SlashCommandBuilder().setName('sync-levels').setDescription('[STAFF] Grant level milestone roles to everyone from current levels'),";
-  const command = "  new SlashCommandBuilder().setName('setup-autorole').setDescription('[STAFF] Set the role automatically given to new members')\n" +
-    "    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
-    "    .addRoleOption(o => o.setName('role').setDescription('Role to give new members').setRequired(true)),\n" +
-    "  new SlashCommandBuilder().setName('role-all').setDescription('[STAFF] Give a role to every current member')\n" +
-    "    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
-    "    .addRoleOption(o => o.setName('role').setDescription('Role to give to everyone').setRequired(true)),\n";
-  if (source.includes(anchor)) source = source.replace(anchor, command + anchor);
+// Replace the /link entry point with a reassuring, password-free version.
+const oldLink = "    if (cmd === 'link') {";
+if (!source.includes("SAFE_LINK_FLOW_INSTALLED") && source.includes(oldLink)) {
+  const safeLink = "    // SAFE_LINK_FLOW_INSTALLED\n" +
+    "    if (cmd === 'link') {\n" +
+    "      const username = interaction.options.getString('username', true).replace('@', '').trim();\n" +
+    "      await interaction.deferReply({ ephemeral: true });\n" +
+    "      const r = await robloxUserId(username);\n" +
+    "      if (!r) return interaction.editReply('❌ I could not find that Roblox username. No account information was changed.');\n" +
+    "      if (db.robloxToDiscord[r.id] && db.robloxToDiscord[r.id] !== interaction.user.id)\n" +
+    "        return interaction.editReply('❌ That Roblox account is already linked. Nothing was changed—please contact staff if this is your account.');\n" +
+    "      for (const [code, rec] of Object.entries(db.linkCodes)) if (rec.discordId === interaction.user.id) delete db.linkCodes[code];\n" +
+    "      const code = String(Math.floor(100000 + Math.random() * 900000));\n" +
+    "      db.linkCodes[code] = { discordId: interaction.user.id, robloxUsername: r.name, robloxId: r.id, expires: Date.now() + 10 * 60 * 1000 };\n" +
+    "      save();\n" +
+    "      const e = embedBase('🌸 Safe account link',\n" +
+    "        'You are linking **Discord** to **Roblox**—not giving anyone access to your account.\\n\\n' +\n" +
+    "        '🔒 **We will never ask for your Roblox password, cookie, email, or two-step code.**\\n' +\n" +
+    "        '✅ Username found: **' + r.name + '**\\n\\n' +\n" +
+    "        '### Finish in Roblox\\n' +\n" +
+    "        'Join the Summer Baddies Roblox game and type this in chat:\\n\\n' +\n" +
+    "        '`!verify ' + code + '`\\n\\n' +\n" +
+    "        'This one-time code expires in **10 minutes**. Never share it with anyone. If you did not request this, ignore it—nothing happens.', 0xff8fc7)\n" +
+    "        .setFooter({ text: 'Password-free • one-time code • expires in 10 minutes' });\n" +
+    "      const thumb = await robloxThumb(r.id);\n" +
+    "      if (thumb) e.setThumbnail(thumb);\n" +
+    "      return interaction.editReply({ embeds: [e] });\n" +
+    "    }\n";
+  source = source.replace(oldLink, safeLink + oldLink);
 }
 
-// Add /create-roles handler if needed.
-if (!source.includes("if (cmd === 'create-roles')")) {
-  const anchor = "    if (cmd === 'selfroles') {";
-  const handler = "    if (cmd === 'create-roles') {\n" +
-    "      const staff = await requireStaff(interaction);\n" +
-    "      if (!staff) return;\n" +
-    "      const lines = interaction.options.getString('setup', true).split('\\n').map(s => s.trim()).filter(Boolean).slice(0, 20);\n" +
-    "      const created = [], existing = [], errors = [];\n" +
-    "      const me = await interaction.guild.members.fetchMe();\n" +
-    "      for (const line of lines) {\n" +
-    "        const parts = line.split('|').map(s => s.trim());\n" +
-    "        const name = String(parts[0] || '').slice(0, 100);\n" +
-    "        const color = /^#[0-9a-fA-F]{6}$/.test(parts[1] || '') ? parts[1] : '#5865F2';\n" +
-    "        if (!name) { errors.push('Missing role name'); continue; }\n" +
-    "        const old = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === name.toLowerCase());\n" +
-    "        if (old) { existing.push(old); continue; }\n" +
-    "        try { created.push(await interaction.guild.roles.create({ name, color, mentionable: true, reason: 'create-roles command' })); }\n" +
-    "        catch (e) { errors.push(name + ': ' + String(e.message || e).slice(0, 120)); }\n" +
-    "      }\n" +
-    "      return interaction.reply({ content: '✅ Created: ' + (created.map(r => '<@&' + r.id + '>').join(', ') || '—') + (existing.length ? '\\nAlready existed: ' + existing.map(r => '<@&' + r.id + '>').join(', ') : '') + (errors.length ? '\\n⚠️ ' + errors.join(' | ') : ''), ephemeral: true });\n" +
+// Handle /link-safety before the normal public command handlers.
+if (!source.includes("LINK_SAFETY_HANDLER_INSTALLED")) {
+  const anchor = "    // ----- PUBLIC -----";
+  const handler = "    // LINK_SAFETY_HANDLER_INSTALLED\n" +
+    "    if (cmd === 'link-safety') {\n" +
+    "      return interaction.reply({ embeds: [embedBase('🛡️ Your Roblox link is safe',\n" +
+    "        '**What we use:** your Roblox username and a temporary six-digit code.\\n\\n' +\n" +
+    "        '**What we never use:** your password, email, browser cookie, backup codes, or 2FA code.\\n\\n' +\n" +
+    "        '**How it works:** /link finds your public username, then you type a one-time `!verify CODE` message inside the Roblox game. The code expires after 10 minutes and is deleted after use.\\n\\n' +\n" +
+    "        'If anyone asks for your password or cookie, do not send it—staff and this bot will never need it.', 0x57d9a3)] });\n" +
     "    }\n";
   if (source.includes(anchor)) source = source.replace(anchor, handler + anchor);
 }
-
-// Add autorole setup and role-all handlers before /selfroles.
-if (!source.includes("if (cmd === 'setup-autorole')")) {
-  const anchor = "    if (cmd === 'selfroles') {";
-  const handlers = "    if (cmd === 'setup-autorole') {\n" +
-    "      const staff = await requireStaff(interaction);\n" +
-    "      if (!staff) return;\n" +
-    "      const role = interaction.options.getRole('role', true);\n" +
-    "      const me = await interaction.guild.members.fetchMe();\n" +
-    "      if (!role.editable || role.position >= me.roles.highest.position) return interaction.reply({ content: '❌ I cannot manage that role. Move it below my bot role.', ephemeral: true });\n" +
-    "      db.settings.autoroleId = role.id; save();\n" +
-    "      return interaction.reply({ content: '✅ Auto-role enabled: new members receive <@&' + role.id + '>.', ephemeral: true });\n" +
-    "    }\n" +
-    "    if (cmd === 'role-all') {\n" +
-    "      const staff = await requireStaff(interaction);\n" +
-    "      if (!staff) return;\n" +
-    "      const role = interaction.options.getRole('role', true);\n" +
-    "      const me = await interaction.guild.members.fetchMe();\n" +
-    "      if (!role.editable || role.position >= me.roles.highest.position || role.managed) return interaction.reply({ content: '❌ I cannot assign that role. Move it below my bot role and choose a normal role.', ephemeral: true });\n" +
-    "      await interaction.deferReply({ ephemeral: true });\n" +
-    "      const members = await interaction.guild.members.fetch();\n" +
-    "      let added = 0, skipped = 0, failed = 0;\n" +
-    "      for (const [, member] of members) {\n" +
-    "        if (member.user.bot || member.roles.cache.has(role.id)) { skipped++; continue; }\n" +
-    "        try { await member.roles.add(role, 'role-all command'); added++; } catch { failed++; }\n" +
-    "      }\n" +
-    "      return interaction.editReply('✅ Role-all complete for <@&' + role.id + '>. Added: **' + added + '** | Skipped: **' + skipped + '** | Failed: **' + failed + '**');\n" +
-    "    }\n";
-  if (source.includes(anchor)) source = source.replace(anchor, handlers + anchor);
-}
-
-// Make new-member autorole run alongside the existing welcome event.
-const memberAdd = "client.on('guildMemberAdd', async (member) => { await sendWelcome(member); });";
-const memberAddWithRole = "client.on('guildMemberAdd', async (member) => {\n  await sendWelcome(member);\n  const roleId = db.settings.autoroleId;\n  if (roleId) await member.roles.add(roleId, 'autorole').catch(() => {});\n});";
-if (source.includes(memberAdd) && !source.includes("'autorole'")) source = source.replace(memberAdd, memberAddWithRole);
 
 fs.writeFileSync(indexPath, source);
 require('./index.js');
