@@ -39,7 +39,7 @@ if (!source.includes("setName('create-roles')")) {
   }
 }
 
-// Add the create-roles command handler once.
+// Add the create-roles command handler exactly once.
 if (!source.includes("if (cmd === 'create-roles')")) {
   const handlerAnchor = "    if (cmd === 'selfroles') {";
   const createRolesHandler = `    if (cmd === 'create-roles') {
@@ -63,12 +63,17 @@ if (!source.includes("if (cmd === 'create-roles')")) {
           created.push(role);
         } catch (e) { errors.push(name + ': ' + String(e.message || e).slice(0, 120)); }
       }
-      const linesToPaste = created.length || existing.length ? '\\n\\nUse this next:\\n\\`\\`\\`text\\n/selfroles setup:\\n' + [...created, ...existing].map((r, i) => `${['👦','👧','🏳️‍🌈','🔞','🟡','🟠','🔴','🟢','⭐','🎮'][i] || '✨'} ${r.name} | @${r.name}`).join('\\n') + '\\n\\`\\`\\`' : '';
+      const roleRows = [...created, ...existing].map(function (r, i) {
+        const emojis = ['👦', '👧', '🏳️‍🌈', '🔞', '🟡', '🟠', '🔴', '🟢', '⭐', '🎮'];
+        return (emojis[i] || '✨') + ' | @' + r.name;
+      }).join('\\n');
+      const linesToPaste = created.length || existing.length
+        ? '\\n\\nUse this next:\\n```text\\n/selfroles setup:\\n' + roleRows + '\\n```'
+        : '';
       return interaction.reply({
-        content: '✅ Created: ' + (created.map(r => '<@&' + r.id + '>').join(', ') || '—') +
-          (existing.length ? '\\nAlready existed: ' + existing.map(r => '<@&' + r.id + '>').join(', ') : '') +
-          (errors.length ? '\\n⚠️ ' + errors.join(' | ') : '') +
-          linesToPaste,
+        content: '✅ Created: ' + (created.map(function (r) { return '<@&' + r.id + '>'; }).join(', ') || '—') +
+          (existing.length ? '\\nAlready existed: ' + existing.map(function (r) { return '<@&' + r.id + '>'; }).join(', ') : '') +
+          (errors.length ? '\\n⚠️ ' + errors.join(' | ') : '') + linesToPaste,
         ephemeral: true
       });
     }
