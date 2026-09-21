@@ -4,22 +4,11 @@ const path = require('path');
 const indexPath = path.join(__dirname, 'index.js');
 let source = fs.readFileSync(indexPath, 'utf8');
 
-// Discord requires required slash-command options to come before optional ones.
-const selfrolesStart = source.indexOf("new SlashCommandBuilder().setName('selfroles')");
-if (selfrolesStart !== -1) {
-  const nextCommand = source.indexOf("new SlashCommandBuilder()", selfrolesStart + 10);
-  const end = nextCommand === -1 ? source.length : nextCommand;
-  const block = source.slice(selfrolesStart, end);
-  const setup = block.match(/\.addStringOption\(o\s*=>\s*o\.setName\(['"]setup['"]\)[\s\S]*?\.setRequired\(true\)\)?/);
-  const channel = block.match(/\.addChannelOption\(o\s*=>\s*o\.setName\(['"]channel['"]\)[\s\S]*?\)\)?/);
-  if (setup && channel && block.indexOf(setup[0]) > block.indexOf(channel[0])) {
-    const reordered = block
-      .replace(setup[0], '')
-      .replace(channel[0], '')
-      .replace(/(\.setDMPermission\(false\)|\.setDefaultMemberPermissions\([^)]*\))/, '$1\n     ' + setup[0] + '\n     ' + channel[0]);
-    source = source.slice(0, selfrolesStart) + reordered + source.slice(end);
-  }
-}
+// NOTE: option-order is fixed directly in index.js (required options first:
+// selfroles 'setup' before 'channel', add-emoji 'emoji' before username/userid).
+// The old regex reorder block lived here and corrupted the selfroles line on
+// every boot — it is intentionally removed. Do NOT re-add runtime patching
+// of the selfroles command block.
 
 // Add a friendly security explainer command.
 if (!source.includes("setName('link-safety')")) {
