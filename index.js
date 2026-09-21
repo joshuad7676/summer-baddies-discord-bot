@@ -651,13 +651,13 @@ const commands = [
     .addIntegerOption(o => o.setName('amount').setDescription('Number of spins').setRequired(true).setMinValue(1)),
   new SlashCommandBuilder().setName('add-emoji').setDescription('[STAFF] Give an emoji overhead to a Roblox user (persists)')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('emoji').setDescription('Emoji, e.g. crown').setRequired(true))
     .addStringOption(o => o.setName('username').setDescription('Roblox username (username OR userid required)'))
-    .addIntegerOption(o => o.setName('userid').setDescription('Roblox user ID (username OR userid required)'))
-    .addStringOption(o => o.setName('emoji').setDescription('Emoji, e.g. crown').setRequired(true)),
+    .addIntegerOption(o => o.setName('userid').setDescription('Roblox user ID (username OR userid required)')),
   new SlashCommandBuilder().setName('selfroles').setDescription('[STAFF] Post a reaction self-role message (up to 10 roles)')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
-    .addChannelOption(o => o.setName('channel').setDescription('Channel to post in (default: here)'))
-    .addStringOption(o => o.setName('setup').setDescription('Label | emoji | @role; separate lines with ; or new line (max 10)').setRequired(true)),
+    .addStringOption(o => o.setName('setup').setDescription('Label | emoji | @role; separate lines with ; or new line (max 10)').setRequired(true))
+    .addChannelOption(o => o.setName('channel').setDescription('Channel to post in (default: here)')),
   new SlashCommandBuilder().setName('sync-levels').setDescription('[STAFF] Grant level milestone roles to everyone from current levels'),
   new SlashCommandBuilder().setName('give-everything').setDescription('[STAFF] Give a player ALL weapons, skins and finishers')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
