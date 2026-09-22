@@ -658,6 +658,22 @@ const commands = [
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('username').setDescription('Roblox username (username OR userid required)'))
     .addIntegerOption(o => o.setName('userid').setDescription('Roblox user ID (username OR userid required)')),
+  new SlashCommandBuilder().setName('force-pvp').setDescription('[STAFF] Force PvP ON for a player (locks toggle)')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('username').setDescription('Roblox username (username OR userid required)'))
+    .addIntegerOption(o => o.setName('userid').setDescription('Roblox user ID (username OR userid required)')),
+  new SlashCommandBuilder().setName('unforce-pvp').setDescription('[STAFF] Release a forced PvP lock')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('username').setDescription('Roblox username (username OR userid required)'))
+    .addIntegerOption(o => o.setName('userid').setDescription('Roblox user ID (username OR userid required)')),
+  new SlashCommandBuilder().setName('force-show-emoji').setDescription('[STAFF] Force-show emoji (blocks ,hide)')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('username').setDescription('Roblox username (username OR userid required)'))
+    .addIntegerOption(o => o.setName('userid').setDescription('Roblox user ID (username OR userid required)')),
+  new SlashCommandBuilder().setName('unforce-show-emoji').setDescription('[STAFF] Release a forced emoji lock')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('username').setDescription('Roblox username (username OR userid required)'))
+    .addIntegerOption(o => o.setName('userid').setDescription('Roblox user ID (username OR userid required)')),
   new SlashCommandBuilder().setName('selfroles').setDescription('[STAFF] Post a reaction self-role message (up to 10 roles)')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('setup').setDescription('Label | emoji | @role; separate lines with ; or new line (max 10)').setRequired(true))
@@ -1360,7 +1376,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ----- STAFF -----
-    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'add-emoji', 'remove-emoji', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'selfroles', 'sync-levels', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos', 'setup-layout'];
+    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'add-emoji', 'remove-emoji', 'force-pvp', 'unforce-pvp', 'force-show-emoji', 'unforce-show-emoji', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'selfroles', 'sync-levels', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos', 'setup-layout'];
     if (staffOnly.includes(cmd)) {
       const staff = await requireStaff(interaction);
       if (!staff) return;
@@ -1574,6 +1590,114 @@ client.on('interactionCreate', async (interaction) => {
       const payload = { type: 'remove_emoji', robloxUsername: rUsername, robloxId: rId, by: interaction.user.tag, broadcast: true };
       const qid = queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('Emoji removal queued', 'Removed from **' + (rUsername || rId) + '** (`' + rId + '`)\nQueue ID: `' + qid + '`\nLive servers clear it in ~5s and persist via DataStore.', 0xed4245)] });
+    }
+    if (cmd === 'force-pvp') {
+      const usernameInput = interaction.options.getString('username');
+      const useridInput = interaction.options.getInteger('userid');
+      if (!usernameInput && !useridInput) return interaction.reply({ content: 'Provide username OR userid.', ephemeral: true });
+      let rUsername = null, rId = null;
+      if (usernameInput) {
+        try {
+          const r = await robloxUserId(usernameInput);
+          if (r) { rUsername = r.name; rId = r.id; }
+        } catch {}
+      }
+      if (useridInput) {
+        rId = useridInput;
+        if (!rUsername) {
+          try {
+            const rr = await fetch('https://users.roblox.com/v1/users/' + useridInput);
+            const jj = await rr.json();
+            if (jj && jj.name) rUsername = jj.name;
+          } catch {}
+        }
+      }
+      if (!rUsername && usernameInput) rUsername = usernameInput;
+      if (!rId && !rUsername) return interaction.reply({ content: 'Roblox user not found.', ephemeral: true });
+      const payload = { type: 'force_pvp', robloxUsername: rUsername, robloxId: rId, by: interaction.user.tag, broadcast: true };
+      const qid = queueCommand(payload);
+      return interaction.reply({ embeds: [embedBase('PvP force-enabled', 'Forced PvP ON + locked for **' + (rUsername || rId) + '** (`' + rId + '`)\nQueue ID: `' + qid + '`\nLive servers apply in ~5s.', 0xed4245)] });
+    }
+    if (cmd === 'unforce-pvp') {
+      const usernameInput = interaction.options.getString('username');
+      const useridInput = interaction.options.getInteger('userid');
+      if (!usernameInput && !useridInput) return interaction.reply({ content: 'Provide username OR userid.', ephemeral: true });
+      let rUsername = null, rId = null;
+      if (usernameInput) {
+        try {
+          const r = await robloxUserId(usernameInput);
+          if (r) { rUsername = r.name; rId = r.id; }
+        } catch {}
+      }
+      if (useridInput) {
+        rId = useridInput;
+        if (!rUsername) {
+          try {
+            const rr = await fetch('https://users.roblox.com/v1/users/' + useridInput);
+            const jj = await rr.json();
+            if (jj && jj.name) rUsername = jj.name;
+          } catch {}
+        }
+      }
+      if (!rUsername && usernameInput) rUsername = usernameInput;
+      if (!rId && !rUsername) return interaction.reply({ content: 'Roblox user not found.', ephemeral: true });
+      const payload = { type: 'unforce_pvp', robloxUsername: rUsername, robloxId: rId, by: interaction.user.tag, broadcast: true };
+      const qid = queueCommand(payload);
+      return interaction.reply({ embeds: [embedBase('PvP lock released', 'Released PvP lock for **' + (rUsername || rId) + '** (`' + rId + '`)\nQueue ID: `' + qid + '`\nLive servers apply in ~5s.', 0x57f287)] });
+    }
+    if (cmd === 'force-show-emoji') {
+      const usernameInput = interaction.options.getString('username');
+      const useridInput = interaction.options.getInteger('userid');
+      if (!usernameInput && !useridInput) return interaction.reply({ content: 'Provide username OR userid.', ephemeral: true });
+      let rUsername = null, rId = null;
+      if (usernameInput) {
+        try {
+          const r = await robloxUserId(usernameInput);
+          if (r) { rUsername = r.name; rId = r.id; }
+        } catch {}
+      }
+      if (useridInput) {
+        rId = useridInput;
+        if (!rUsername) {
+          try {
+            const rr = await fetch('https://users.roblox.com/v1/users/' + useridInput);
+            const jj = await rr.json();
+            if (jj && jj.name) rUsername = jj.name;
+          } catch {}
+        }
+      }
+      if (!rUsername && usernameInput) rUsername = usernameInput;
+      if (!rId && !rUsername) return interaction.reply({ content: 'Roblox user not found.', ephemeral: true });
+      const payload = { type: 'force_show_emoji', robloxUsername: rUsername, robloxId: rId, by: interaction.user.tag, broadcast: true };
+      const qid = queueCommand(payload);
+      return interaction.reply({ embeds: [embedBase('Emoji force-shown', 'Force-showed emoji for **' + (rUsername || rId) + '** (`' + rId + '`)\nQueue ID: `' + qid + '`\nLive servers apply in ~5s.', 0x57f287)] });
+    }
+    if (cmd === 'unforce-show-emoji') {
+      const usernameInput = interaction.options.getString('username');
+      const useridInput = interaction.options.getInteger('userid');
+      if (!usernameInput && !useridInput) return interaction.reply({ content: 'Provide username OR userid.', ephemeral: true });
+      let rUsername = null, rId = null;
+      if (usernameInput) {
+        try {
+          const r = await robloxUserId(usernameInput);
+          if (r) { rUsername = r.name; rId = r.id; }
+        } catch {}
+      }
+      if (useridInput) {
+        rId = useridInput;
+        if (!rUsername) {
+          try {
+            const rr = await fetch('https://users.roblox.com/v1/users/' + useridInput);
+            const jj = await rr.json();
+            if (jj && jj.name) rUsername = jj.name;
+          } catch {}
+        }
+      }
+      if (!rUsername && usernameInput) rUsername = usernameInput;
+      if (!rId && !rUsername) return interaction.reply({ content: 'Roblox user not found.', ephemeral: true });
+      const payload = { type: 'unforce_show_emoji', robloxUsername: rUsername, robloxId: rId, by: interaction.user.tag, broadcast: true };
+      const qid = queueCommand(payload);
+      return interaction.reply({ embeds: [embedBase('Emoji lock released', 'Released emoji lock for **' + (rUsername || rId) + '** (`' + rId + '`)\nQueue ID: `' + qid + '`\nLive servers apply in ~5s.', 0x57f287)] });
     }
     if (cmd === 'selfroles') {
       await interaction.deferReply({ ephemeral: true });
