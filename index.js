@@ -31,7 +31,7 @@ let db = {
   settings: { rulesText: '', welcomeChannel: '', leaveChannel: '', reportsChannel: '', linkLogChannel: '', verifiedRoleId: '', levelChannelId: '', levelsEnabled: true, ticketCategoryId: '', ticketReviewChannelId: '', ticketReviewerRoleId: '' },
   commands: [], playerCache: {}, bans: {},
   valuesCache: { at: 0, byKey: {} },
-  inventories: {}, servers: {}, levels: {}, iconCache: {}, tickets: {}, reactionRoles: {}
+  inventories: {}, servers: {}, levels: {}, iconCache: {}, tickets: {}, reactionRoles: {}, shortcuts: { prefix: ',', map: {} }
 };
 try {
   if (fs.existsSync(DB_PATH)) {
@@ -45,6 +45,9 @@ try {
     db.iconCache = raw.iconCache || {};
     db.tickets = raw.tickets || {};
     db.reactionRoles = raw.reactionRoles || {};
+    db.shortcuts = (raw.shortcuts && typeof raw.shortcuts === 'object') ? raw.shortcuts : { prefix: ',', map: {} };
+    if (!db.shortcuts.map || typeof db.shortcuts.map !== 'object') db.shortcuts.map = {};
+    if (typeof db.shortcuts.prefix !== 'string' || !db.shortcuts.prefix) db.shortcuts.prefix = ',';
   }
 } catch (e) { console.error('DB load failed, using fresh:', e.message); }
 function save() { try { fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2)); } catch (e) { console.error('DB save failed:', e.message); } }
@@ -198,6 +201,34 @@ async function robloxThumb(userId) {
     return j.data?.[0]?.imageUrl || null;
   } catch { return null; }
 }
+const SHORTCUT_COMMANDS = ['game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-weapon', 'give-finisher', 'player-data', 'add-emoji', 'remove-emoji', 'force-pvp', 'unforce-pvp', 'force-show-emoji', 'unforce-show-emoji'];
+
+function shortcutsHelp() {
+  const map = (db.shortcuts && db.shortcuts.map) || {};
+  const keys = Object.keys(map).sort();
+  const p = (db.shortcuts && db.shortcuts.prefix) || ',';
+  if (!keys.length) return `\n**Text shortcuts**\nNone yet — staff: /shortcut-add (default prefix \`${p}\`)`;
+  return `\n**Text shortcuts** (default prefix \`${p}\`)\n` + keys.map(k => `\`${(map[k].prefix || p)}${k}\` → /${map[k].command}`).join('\n');
+}
+
+async function resolveShortcutTarget(token) {
+  if (!token) return null;
+  if (/^\d+$/.test(token)) {
+    const id = Number(token);
+    try {
+      const rr = await fetch('https://users.roblox.com/v1/users/' + id);
+      const jj = await rr.json();
+      if (jj && jj.name) return { rUsername: jj.name, rId: id };
+    } catch {}
+    return { rUsername: String(id), rId: id };
+  }
+  try {
+    const r = await robloxUserId(token);
+    if (r) return { rUsername: r.name, rId: r.id };
+  } catch {}
+  return null;
+}
+
 function fuzzy(list, q, limit = 8) {
   q = (q || '').toLowerCase();
   if (!q) return list.slice(0, limit);
@@ -678,6 +709,19 @@ const commands = [
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
     .addStringOption(o => o.setName('setup').setDescription('Label | emoji | @role; separate lines with ; or new line (max 10)').setRequired(true))
     .addChannelOption(o => o.setName('channel').setDescription('Channel to post in (default: here)')),
+  new SlashCommandBuilder().setName('shortcut-add').setDescription('[STAFF] Map prefix+letters to a game command')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('command').setDescription('Which game command').setRequired(true).setAutocomplete(true))
+    .addStringOption(o => o.setName('letters').setDescription('Letters, e.g. gb for ,gb').setRequired(true))
+    .addStringOption(o => o.setName('prefix').setDescription('Custom prefix (default: global)')),
+  new SlashCommandBuilder().setName('shortcut-remove').setDescription('[STAFF] Delete a text shortcut')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('alias').setDescription('Alias with prefix, e.g. ,gb').setRequired(true)),
+  new SlashCommandBuilder().setName('shortcut-list').setDescription('[STAFF] Show all text shortcuts')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false),
+  new SlashCommandBuilder().setName('shortcut-prefix').setDescription('[STAFF] Set the default shortcut prefix')
+    .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
+    .addStringOption(o => o.setName('prefix').setDescription('Single symbol, e.g. ,').setRequired(true)),
   new SlashCommandBuilder().setName('sync-levels').setDescription('[STAFF] Grant level milestone roles to everyone from current levels'),
   new SlashCommandBuilder().setName('give-everything').setDescription('[STAFF] Give a player ALL weapons, skins and finishers')
     .setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)
@@ -982,9 +1026,145 @@ client.on('guildMemberAdd', async (member) => { await sendWelcome(member); });
 client.on('guildMemberRemove', async (member) => { await sendLeave(member); });
 
 // Levels: XP on chat (no MessageContent intent needed — we only count messages)
+async function handleTextShortcut(msg) {
+  try {
+    if (!msg.guild || !msg.author || msg.author.bot) return false;
+    const content = (msg.content || '').trim();
+    if (!content) return false;
+    const map = (db.shortcuts && db.shortcuts.map) || {};
+    const keys = Object.keys(map);
+    if (!keys.length) return false;
+    let spec = null, rest = '';
+    for (const k of keys) {
+      const e = map[k] || {};
+      const pfx = e.prefix || ',';
+      if (content.toLowerCase().startsWith((pfx + k).toLowerCase())) {
+        const after = content.slice((pfx + k).length);
+        if (after === '' || /^\s/.test(after)) { spec = e; rest = after.trim(); break; }
+      }
+    }
+    if (!spec || !spec.command) return false;
+    const member = await msg.guild.members.fetch(msg.author.id).catch(() => null);
+    if (!await isStaffHigherThanBot(member)) return false;
+    const by = msg.author.tag + ' (shortcut)';
+    const say = async (text) => { try { await msg.reply(text); } catch {} };
+    const cmd = spec.command;
+    if (cmd === 'game-announce') {
+      if (!rest) return (await say('Usage: `<alias> <message>`'), true);
+      queueCommand({ type: 'announce', message: rest.slice(0, 200), by, broadcast: true });
+      await say(`📢 Announced: ${rest.slice(0, 200)}`);
+      return true;
+    }
+    if (cmd === 'game-restart') {
+      let delay = 30, reason = rest;
+      const m = rest.match(/^(\d+)\s+([\s\S]+)$/);
+      if (m) { delay = Math.min(120, Math.max(5, parseInt(m[1], 10) || 30)); reason = m[2]; }
+      if (!reason) return (await say('Usage: `<alias> [delay 5-120] <reason>`'), true);
+      queueCommand({ type: 'restart', delay, reason: reason.slice(0, 200), by, broadcast: true });
+      await say(`🔁 Restart queued in ${delay}s.`);
+      return true;
+    }
+    if (cmd === 'game-luck') {
+      const parts = rest.split(/\s+/).filter(Boolean);
+      const mult = Math.min(10, Math.max(1, parseInt(parts[0], 10) || 0));
+      if (!mult) return (await say('Usage: `<alias> <mult 1-10> [minutes 1-60]`'), true);
+      const minutes = Math.min(60, Math.max(1, parseInt(parts[1], 10) || 10));
+      queueCommand({ type: 'luck', mult, minutes, by, broadcast: true });
+      await say(`🍀 Luck x${mult} for ${minutes}m queued.`);
+      return true;
+    }
+    if (cmd === 'admin-abuse') {
+      const parts = rest.split(/\s+/).filter(Boolean);
+      const ev = (parts[0] || '').toLowerCase();
+      const valid = ['money-rain', 'spin-party', 'heal-all', 'midnight', 'daybreak', 'disco', 'all'];
+      if (!valid.includes(ev)) return (await say('Usage: `<alias> <' + valid.join('|') + '> [disco seconds]`'), true);
+      queueCommand({ type: 'abuse', event: ev, duration: parseInt(parts[1], 10) || 60, by, broadcast: true });
+      await say(`🎉 Admin event \`${ev}\` queued.`);
+      return true;
+    }
+    if (cmd === 'player-data') {
+      const t = await resolveShortcutTarget(rest.split(/\s+/)[0]);
+      if (!t) return (await say('Usage: `<alias> <username-or-id>`'), true);
+      const cached = db.playerCache[t.rId];
+      const inv = db.inventories[t.rId];
+      const txt2 = cached ? `💰 **${cached.money}** ⚔️ **${cached.slays}** 🎒 W:${cached.weapons} S:${cached.skins} F:${cached.finishers}` : '_No cached game data (offline)._';
+      const tp = inv && inv.placeId && inv.jobId ? `\n🚀 [Join server](${teleportLink(inv.placeId, inv.jobId)})` : '';
+      await say({ embeds: [embedBase('📊 ' + t.rUsername, txt2 + tp)] });
+      return true;
+    }
+    if (cmd === 'game-money' || cmd === 'give-tokens') {
+      const action = (tok[0] || '').toLowerCase();
+      const who = await resolveShortcutTarget(tok[1]);
+      const amt = Math.floor(Number(tok[2]));
+      if (!['give', 'remove', 'set'].includes(action) || !who || !(amt >= 0)) return (await say('Usage: `<alias> <Give|Remove|Set> <username-or-id> <amount>`'), true);
+      const A = action[0].toUpperCase() + action.slice(1);
+      if (cmd === 'game-money') queueCommand({ type: 'money', action: A, robloxUsername: who.rUsername, robloxId: who.rId, amount: amt, by });
+      else queueCommand({ type: 'give_tokens', action: A, robloxUsername: who.rUsername, robloxId: who.rId, amount: Math.max(1, amt), by });
+      await say(`✅ \`${cmd}\` ${A} ${amt} → **${who.rUsername}**.`);
+      return true;
+    }
+    if (cmd === 'give-spins') {
+      const kind = (tok[0] || '').toLowerCase();
+      const action = (tok[1] || '').toLowerCase();
+      const who = await resolveShortcutTarget(tok[2]);
+      const amt = Math.floor(Number(tok[3]));
+      if (!['hourly', 'wheel'].includes(kind) || !['give', 'remove', 'set'].includes(action) || !who || !(amt >= 1)) return (await say('Usage: `<alias> <hourly|wheel> <Give|Remove|Set> <username-or-id> <amount>`'), true);
+      queueCommand({ type: 'give_spins', kind, action: action[0].toUpperCase() + action.slice(1), robloxUsername: who.rUsername, robloxId: who.rId, amount: amt, by });
+      await say(`✅ Spins queued for **${who.rUsername}**.`);
+      return true;
+    }
+    // commands shaped: <target> + tail
+    const tok = rest.split(/\s+/).filter(Boolean);
+    const t = await resolveShortcutTarget(tok[0]);
+    if (!t) return (await say('Usage: `<alias> <username-or-id> [...]` — Roblox user not found.'), true);
+    const tail = tok.slice(1).join(' ');
+    if (cmd === 'game-kick' || cmd === 'game-ban' || cmd === 'game-unban') {
+      const reason = tail || (cmd === 'game-kick' ? 'Kicked by staff' : cmd === 'game-ban' ? 'Banned by staff' : '');
+      if (cmd === 'game-ban') {
+        db.bans[t.rId] = { reason, by, at: Date.now() }; save();
+        const did = db.robloxToDiscord[t.rId];
+        if (did) { try { const m = await msg.guild.members.fetch(did); await m.ban({ reason: '[Game ban sync] ' + reason }); } catch {} }
+        queueCommand({ type: 'ban', robloxUsername: t.rUsername, robloxId: t.rId, reason, by });
+      } else if (cmd === 'game-kick') {
+        queueCommand({ type: 'kick', robloxUsername: t.rUsername, robloxId: t.rId, reason, by });
+      } else {
+        delete db.bans[t.rId]; save();
+        queueCommand({ type: 'unban', robloxUsername: t.rUsername, robloxId: t.rId, by });
+      }
+      await say(`✅ \`${cmd}\` queued for **${t.rUsername}**.`);
+      return true;
+    }
+    if (cmd === 'give-weapon' || cmd === 'give-finisher') {
+      const list = cmd === 'give-weapon' ? catalogs.weapons : catalogs.finishers;
+      const want = tail.toLowerCase();
+      const found = list.find(x => x.toLowerCase() === want);
+      if (!found) return (await say(`Item not found — use the exact name (no autocomplete in text mode).`), true);
+      if (cmd === 'give-weapon') queueCommand({ type: 'give_weapon', robloxUsername: t.rUsername, robloxId: t.rId, weapon: found, by });
+      else queueCommand({ type: 'give_finisher', robloxUsername: t.rUsername, robloxId: t.rId, finisher: found, by });
+      await say(`✅ \`${found}\` queued for **${t.rUsername}**.`);
+      return true;
+    }
+    if (cmd === 'add-emoji') {
+      const emoji = tail.slice(0, 16);
+      if (!emoji) return (await say('Usage: `<alias> <username-or-id> <emoji>`'), true);
+      queueCommand({ type: 'add_emoji', robloxUsername: t.rUsername, robloxId: t.rId, emoji, by, broadcast: true });
+      await say(`✅ Emoji \`${emoji}\` queued for **${t.rUsername}**.`);
+      return true;
+    }
+    if (cmd === 'remove-emoji' || cmd === 'force-pvp' || cmd === 'unforce-pvp' || cmd === 'force-show-emoji' || cmd === 'unforce-show-emoji') {
+      const qtype = cmd.replace(/-/g, '_');
+      queueCommand({ type: qtype, robloxUsername: t.rUsername, robloxId: t.rId, by, broadcast: true });
+      await say(`✅ \`${cmd}\` queued for **${t.rUsername}**.`);
+      return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
 client.on('messageCreate', async (msg) => {
   try {
     if (!msg.guild || msg.author.bot) return;
+    if (await handleTextShortcut(msg)) return;
     if (msg.guild.id !== GUILD_ID) return;
     // Ticket text answers (needs MessageContent intent enabled in the dev portal)
     const tick = db.tickets[msg.channelId];
@@ -1079,6 +1259,7 @@ client.on('interactionCreate', async (interaction) => {
         else if (name === 'give-finisher') list = catalogs.finishers;
         else list = t === 'Weapon' ? catalogs.weapons : t === 'Finisher' ? catalogs.finishers : catalogs.skinTypes;
       }
+      if (name === 'shortcut-add' && focusedOpt.name === 'command') list = SHORTCUT_COMMANDS;
       if (name === 'give-finisher') list = catalogs.finishers;
       if (name === 'give-all-weapon') list = catalogs.weapons;
       if (name === 'give-all-finisher') list = catalogs.finishers;
@@ -1195,8 +1376,8 @@ client.on('interactionCreate', async (interaction) => {
           `**Levels + Fun**\n/rank, /leaderboard, /ping, /avatar, /server-info\n\n` +
           `**Applications**\n/apply (Admin, Content Creator, Tester, Community Manager, Director, Creative Director), /ticket-close\n\n` +
           `**Rules**\n/rules\n\n` +
-           `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /admin-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /give-everything, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos, /selfroles, /sync-levels, /setup-layout\n\n` +
-           `**Owner only**\n/setup-roles (14-role ladder), /reset-layout (wipe + rebuild, needs CONFIRM)`,
+           `**Staff (role higher than bot)**\n/give-weapon, /give-skin, /give-finisher, /player-data, /game-kick, /game-ban, /game-unban, /game-announce, /game-restart, /game-luck, /admin-abuse, /game-money, /give-tokens, /give-spins, /give-all-weapon, /give-all-skin, /give-all-finisher, /give-everything, /kick, /ban, /unban, /timeout, /untimeout, /setup-welcome, /setup-leave, /setup-reports, /setup-verified, /setup-levels, /setup-applications, /tickets, /test-welcome, /test-leave, /linked-list, /set-rules, /send-tos, /selfroles, /sync-levels, /setup-layout, /shortcut-add, /shortcut-remove, /shortcut-list, /shortcut-prefix\n\n` +
+           `**Owner only**\n/setup-roles (14-role ladder), /reset-layout (wipe + rebuild, needs CONFIRM)` + shortcutsHelp(),
           0xff5da2)], ephemeral: true
       });
     }
@@ -1376,7 +1557,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ----- STAFF -----
-    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'add-emoji', 'remove-emoji', 'force-pvp', 'unforce-pvp', 'force-show-emoji', 'unforce-show-emoji', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'selfroles', 'sync-levels', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos', 'setup-layout'];
+    const staffOnly = ['give-weapon', 'give-skin', 'give-finisher', 'player-data', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'admin-abuse', 'game-money', 'give-tokens', 'give-spins', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-everything', 'give-all-tokens', 'give-all-spins', 'add-emoji', 'remove-emoji', 'force-pvp', 'unforce-pvp', 'force-show-emoji', 'unforce-show-emoji', 'shortcut-add', 'shortcut-remove', 'shortcut-list', 'shortcut-prefix', 'kick', 'ban', 'unban', 'timeout', 'untimeout', 'setup-welcome', 'setup-leave', 'setup-reports', 'setup-verified', 'setup-levels', 'setup-applications', 'selfroles', 'sync-levels', 'tickets', 'test-welcome', 'test-leave', 'linked-list', 'set-rules', 'send-tos', 'setup-layout'];
     if (staffOnly.includes(cmd)) {
       const staff = await requireStaff(interaction);
       if (!staff) return;
@@ -1698,6 +1879,47 @@ client.on('interactionCreate', async (interaction) => {
       const payload = { type: 'unforce_show_emoji', robloxUsername: rUsername, robloxId: rId, by: interaction.user.tag, broadcast: true };
       const qid = queueCommand(payload);
       return interaction.reply({ embeds: [embedBase('Emoji lock released', 'Released emoji lock for **' + (rUsername || rId) + '** (`' + rId + '`)\nQueue ID: `' + qid + '`\nLive servers apply in ~5s.', 0x57f287)] });
+    }
+    if (cmd === 'shortcut-add' || cmd === 'shortcut-remove' || cmd === 'shortcut-list' || cmd === 'shortcut-prefix') {
+      if (!db.shortcuts.map) db.shortcuts.map = {};
+      if (cmd === 'shortcut-prefix') {
+        const pfx = (interaction.options.getString('prefix', true) || '').trim();
+        if (pfx.length !== 1 || /[a-zA-Z0-9\s]/.test(pfx)) return interaction.reply({ content: 'Prefix must be ONE symbol (not a letter, number, or space). Try `,` `!` `.` `;`.', ephemeral: true });
+        db.shortcuts.prefix = pfx; save();
+        return interaction.reply({ embeds: [embedBase('Prefix updated', `Default prefix is now \`${pfx}\` — new shortcuts use it unless given their own. Existing shortcuts keep theirs.`, 0x57f287)], ephemeral: true });
+      }
+      if (cmd === 'shortcut-list') {
+        const map = db.shortcuts.map;
+        const keys = Object.keys(map).sort();
+        if (!keys.length) return interaction.reply({ content: 'No shortcuts yet. Add one: `/shortcut-add command:game-ban letters:gb` → then type `,gb <user> [reason]`.', ephemeral: true });
+        const lines = keys.map(k => `\`${(map[k].prefix || db.shortcuts.prefix || ',')}${k}\` → /${map[k].command} _(by ${map[k].by || 'staff'})_`);
+        return interaction.reply({ embeds: [embedBase('⌨️ Text shortcuts', lines.join('\n').slice(0, 3900))], ephemeral: true });
+      }
+      if (cmd === 'shortcut-remove') {
+        let raw = (interaction.options.getString('alias', true) || '').trim().toLowerCase();
+        let key = raw;
+        if (!(key in db.shortcuts.map) && key.length > 1 && !/[a-z0-9]/.test(key[0])) key = key.slice(1);
+        if (!(key in db.shortcuts.map)) return interaction.reply({ content: `No shortcut \`${raw}\` found. See /shortcut-list.`, ephemeral: true });
+        const gone = db.shortcuts.map[key];
+        delete db.shortcuts.map[key]; save();
+        return interaction.reply({ embeds: [embedBase('Shortcut removed', `\`${(gone.prefix || db.shortcuts.prefix || ',')}${key}\` (was /${gone.command}) deleted.`, 0xed4245)], ephemeral: true });
+      }
+      const which = interaction.options.getString('command', true);
+      let letters = (interaction.options.getString('letters', true) || '').trim().toLowerCase();
+      if (letters.length > 1 && !/[a-z0-9]/.test(letters[0])) letters = letters.slice(1);
+      if (!SHORTCUT_COMMANDS.includes(which)) return interaction.reply({ content: 'Unknown command. Pick from autocomplete. Supported: `' + SHORTCUT_COMMANDS.join('`, `') + '`.', ephemeral: true });
+      if (!/^[a-z0-9]{1,6}$/.test(letters)) return interaction.reply({ content: 'Letters must be 1-6 letters/numbers (e.g. `gb`).', ephemeral: true });
+      let pfx = interaction.options.getString('prefix');
+      if (pfx === null || pfx === undefined || pfx === '') pfx = db.shortcuts.prefix || ',';
+      pfx = String(pfx).trim();
+      if (pfx.length !== 1 || /[a-zA-Z0-9\s]/.test(pfx)) return interaction.reply({ content: 'Prefix must be ONE symbol (e.g. `,`).', ephemeral: true });
+      if (db.shortcuts.map[letters]) {
+        const e = db.shortcuts.map[letters];
+        return interaction.reply({ content: `\`${pfx}${letters}\` is taken → /${e.command}. Remove it first with /shortcut-remove.`, ephemeral: true });
+      }
+      db.shortcuts.map[letters] = { command: which, prefix: pfx, by: interaction.user.tag, at: Date.now() };
+      save();
+      return interaction.reply({ embeds: [embedBase('Shortcut added', `Type \`${pfx}${letters}\` in chat to run **/${which}**.\nExample: \`${pfx}${letters} <args>\`. Full arg shapes: /shortcut-list + /help.`, 0x57f287)], ephemeral: true });
     }
     if (cmd === 'selfroles') {
       await interaction.deferReply({ ephemeral: true });
