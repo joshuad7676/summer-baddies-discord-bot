@@ -912,8 +912,8 @@ const commands = [
   new SlashCommandBuilder().setName('giveaway').setDescription('🎉 Giveaways (Carl-style)')
     .addSubcommand(s => s.setName('start').setDescription('[STAFF] Start a giveaway')
       .addStringOption(o => o.setName('prize').setDescription('What is the prize?').setRequired(true))
-      .addIntegerOption(o => o.setName('winners').setDescription('Winners 1-10 (default 1)').setMinValue(1).setMaxValue(10))
       .addStringOption(o => o.setName('duration').setDescription('e.g. 10m, 1h, 1d').setRequired(true))
+      .addIntegerOption(o => o.setName('winners').setDescription('Winners 1-10 (default 1)').setMinValue(1).setMaxValue(10))
       .addChannelOption(o => o.setName('channel').setDescription('Channel (default: here)')))
     .addSubcommand(s => s.setName('end').setDescription('[STAFF] End a giveaway now')
       .addStringOption(o => o.setName('messageid').setDescription('Giveaway message ID').setRequired(true)))
@@ -964,8 +964,15 @@ const commands = [
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
-  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-  console.log('Slash commands registered to guild ' + GUILD_ID);
+  try {
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log(`Slash commands registered to guild ${GUILD_ID} (${commands.length} commands)`);
+  } catch (e) {
+    // Discord rejects the WHOLE batch if even one builder is invalid — print the real reason.
+    console.error('register failed:', e.message);
+    try { console.error('discord error detail:', JSON.stringify(e.rawError || e, null, 2).slice(0, 3000)); } catch {}
+    throw e;
+  }
 }
 
 // ---------- helpers ----------
