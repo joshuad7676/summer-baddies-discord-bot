@@ -1,4 +1,3 @@
-Here is the full, complete index.js file with all imports, helpers, command handlers, and express bridge logic intact.
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
