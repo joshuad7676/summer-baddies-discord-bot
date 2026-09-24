@@ -1,4 +1,4 @@
-[source: 2]      return interaction.reply({ content: `${u.username} has not linked a Roblox account. Use /link.`, ephemeral: true });
+      return interaction.reply({ content: `${u.username} has not linked a Roblox account. Use /link.`, ephemeral: true });
       const thumb = await robloxThumb(l.robloxId);
       const cached = db.playerCache[l.robloxId];
       const inv = db.inventories[l.robloxId];
