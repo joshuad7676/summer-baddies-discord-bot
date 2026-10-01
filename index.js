@@ -15,6 +15,7 @@ const { getDb, save } = require('./src/db');
 const { embedBase, themeColorInt } = require('./src/embeds');
 const { startBridge, isStaffHigherThanBot } = require('./src/bridge');
 const { queueCommand, resolveRobloxTarget } = require('./src/roblox');
+const { checkRaid } = require('./src/raid');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -67,63 +68,9 @@ async function deployCommands() {
   console.log(`[deploy] registered ${body.length} guild slash commands`);
 }
 
-// ---------- natural-language role creation ----------
-const COLOR_WORDS = {
-  pink: '#FF5DA2', hotpink: '#FF3D7F', red: '#ED4245', orange: '#F97316', yellow: '#FEE75C',
-  gold: '#FFD700', green: '#57F287', mint: '#57F287', teal: '#00C2A8', blue: '#5AAAFf',
-  purple: '#C85AFF', violet: '#8B5CF6', white: '#FFFFFF', black: '#000000',
-  gray: '#808080', grey: '#808080', blurple: '#5865F2',
-};
-function parseColorWord(input) {
-  if (!input) return null;
-  const s = String(input).trim();
-  const hex = s.match(/^#?([0-9a-fA-F]{6})$/);
-  if (hex) return '#' + hex[1].toUpperCase();
-  const key = s.toLowerCase().replace(/[\s_-]/g, '');
-  if (COLOR_WORDS[key]) return COLOR_WORDS[key];
-  return null;
-}
-/** "@bot make a role called Hello and make it pink" -> { name, colorHex } | null */
-function parseRoleRequest(text) {
-  const t = String(text || '');
-  if (!/(make|create).{0,20}role/i.test(t)) return null;
-  let m = t.match(/role\s+(?:called|named)\s+["']?([^"'.,!?]+?)["']?\s*(?:and make it\s+([a-zA-Z#0-9\s_-]+))?\s*$/i)
-    || t.match(/role\s+["']([^"']+)["']\s*(?:.*?(pink|red|blue|green|purple|orange|yellow|gold|mint|teal|white|black|gr[ae]y|blurple|#[0-9a-fA-F]{6}))?/i);
-  if (!m) return null;
-  const name = (m[1] || '').trim().replace(/\s+/g, ' ').slice(0, 100);
-  const colorWord = (m[2] || '').trim();
-  if (!name) return null;
-  return { name, colorHex: parseColorWord(colorWord) || '#FF5DA2', colorWord: colorWord || 'pink (default)' };
-}
-
-async function handleRoleCreation(message) {
-  const parsed = parseRoleRequest(message.content);
-  if (!parsed) return false;
-  const member = message.member;
-  if (!member?.permissions?.has(PermissionFlagsBits.ManageRoles)) {
-    await message.reply('❌ You need the **Manage Roles** permission to create roles.').catch(() => {});
-    return true;
-  }
-  const me = await message.guild.members.fetchMe().catch(() => null);
-  if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
-    await message.reply('❌ I need the **Manage Roles** permission to create roles.').catch(() => {});
-    return true;
-  }
-  try {
-    const role = await message.guild.roles.create({
-      name: parsed.name,
-      color: parsed.colorHex,
-      mentionable: false,
-      reason: `Natural language request by ${message.author.tag}`,
-    });
-    await message.reply({
-      embeds: [embedBase('🎭 Role created', `Created <@&${role.id}> (**${role.name}**) with color **${parsed.colorHex}** (${parsed.colorWord}).`, parseInt(parsed.colorHex.slice(1), 16))],
-    }).catch(() => {});
-  } catch (e) {
-    await message.reply(`❌ Could not create role: ${String(e.message || e).slice(0, 200)}`).catch(() => {});
-  }
-  return true;
-}
+// ---------- natural-language chat controls (mention the bot) ----------
+// Full implementation lives in src/natural.js so it stays testable.
+const { handleNatural } = require('./src/natural');
 
 // ---------- custom text prefixes: "<prefix><command> args" ----------
 async function handleCustomPrefix(message) {
@@ -324,9 +271,13 @@ client.on('guildMemberRemove', async (member) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   if (!message.guild) return;
-  // 1) bot mention -> role creation OR hello
+  // 0) raid protection (links + 3+ spam) — staff bypass, runs on every message
+  try {
+    if (await checkRaid(message)) return;
+  } catch (e) { console.error('[raid]', e.message); }
+  // 1) bot mention -> natural-language controls (channel/category/role/lock/ban/kick/timeout) OR hello
   if (message.mentions.has(client.user)) {
-    const handled = await handleRoleCreation(message);
+    const handled = await handleNatural(message).catch((e) => { console.error('[natural]', e.message); return false; });
     if (handled) return;
     await message.reply('Hello! How May I Assist You? 🌸\nTry `/help` for commands or `/see-rcommands` for Roblox commands.').catch(() => {});
     return;

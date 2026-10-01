@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS = {
   // Per-command text prefixes: { "game-ban": "!", "game-kick": "?" }
   // Trigger via message: "<prefix><command> args..." e.g. "!game-ban user reason"
   commandPrefixes: {},
+  // Raid protection: block links + spam (3+ messages fast / 3 identical)
+  raidProtect: { enabled: false, blockLinks: true, spamLimit: 3, spamWindowSec: 10, timeoutMin: 10 },
 };
 
 const DEFAULTS = {
@@ -42,7 +44,16 @@ const DEFAULTS = {
 let db = JSON.parse(JSON.stringify(DEFAULTS));
 
 function mergeSettings(raw) {
-  return { ...DEFAULT_SETTINGS, ...(raw || {}), commandPrefixes: { ...((raw && raw.commandPrefixes) || {}) } };
+  const base = { ...DEFAULT_SETTINGS, ...(raw || {}) };
+  base.commandPrefixes = { ...((raw && raw.commandPrefixes) || {}) };
+  base.raidProtect = { ...DEFAULT_SETTINGS.raidProtect, ...((raw && raw.raidProtect) || {}) };
+  // clamp to sane ranges so a bad edit can't break the bot
+  base.raidProtect.spamLimit = Math.min(Math.max(Number(base.raidProtect.spamLimit) || 3, 2), 10);
+  base.raidProtect.spamWindowSec = Math.min(Math.max(Number(base.raidProtect.spamWindowSec) || 10, 5), 60);
+  base.raidProtect.timeoutMin = Math.min(Math.max(Number(base.raidProtect.timeoutMin) || 10, 1), 60);
+  base.raidProtect.enabled = !!base.raidProtect.enabled;
+  base.raidProtect.blockLinks = base.raidProtect.blockLinks !== false;
+  return base;
 }
 
 try {
