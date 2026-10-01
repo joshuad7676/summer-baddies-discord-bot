@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   reportsChannel: '',
   linkLogChannel: '',
   verifiedRoleId: '',
+  logChannel: '',
   // Custom greeting templates. Supported variables:
   // {user} {username} {mention} {server} {membercount}
   welcomeMessage: 'Welcome {mention} to **{server}**! You are member **#{membercount}**. Link with /link to get Verified.',

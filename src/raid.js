@@ -47,6 +47,8 @@ async function checkRaid(message) {
   if (cfg.blockLinks && LINK_RE.test(content)) {
     try {
       if (message.deletable) await message.delete().catch(() => {});
+      const { sendModLog } = require('./modlog');
+      await sendModLog(message.guild, embedBase('🔗 Link blocked', `${message.author.tag} (<@${message.author.id}>) in <#${message.channel.id}>\n> ${content.slice(0, 300)}`, 0xf97316));
       const warn = await message.channel.send(`${message.author}, links are blocked while raid protection is on.`).catch(() => null);
       if (warn) setTimeout(() => warn.delete().catch(() => {}), 5000);
     } catch {}
@@ -77,6 +79,8 @@ async function checkRaid(message) {
     const emb = embedBase('🛡️ Raid protect', `${message.author} was stopped for spamming (${inWindow.length} messages in ${cfg.spamWindowSec}s).${member ? `\nTimed out for **${cfg.timeoutMin}m**.` : ''}`, 0xed4245);
     const note = await message.channel.send({ embeds: [emb] }).catch(() => null);
     if (note) setTimeout(() => note.delete().catch(() => {}), 8000);
+    const { sendModLog } = require('./modlog');
+    await sendModLog(message.guild, embedBase('🛡️ Spam stopped', `${message.author.tag} (<@${message.author.id}>) in <#${message.channel.id}>\n${inWindow.length} msgs in ${cfg.spamWindowSec}s → timeout **${cfg.timeoutMin}m**.`, 0xed4245));
     history.set(k, []); // reset so one punishment doesn't chain-timeout the next message
   } catch {}
   return true;

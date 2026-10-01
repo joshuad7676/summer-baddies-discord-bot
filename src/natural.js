@@ -13,6 +13,7 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { embedBase } = require('./embeds');
 const { isStaffHigherThanBot } = require('./bridge');
+const { sendModLog } = require('./modlog');
 const { getDb, save } = require('./db');
 const { queueCommand } = require('./roblox');
 
@@ -222,6 +223,7 @@ async function handleLockNL(message) {
       await target.permissionOverwrites.edit(everyone, { SendMessages: parsed.action === 'lock' ? false : null }).catch((e) => { throw e; });
     }
     await message.reply({ embeds: [embedBase(parsed.action === 'lock' ? '🔒 Channel locked' : '🔓 Channel unlocked', `<#${target.id}> ${parsed.action === 'lock' ? 'is now read-only for @everyone.' : 'is open again.'}`, parsed.action === 'lock' ? 0xf97316 : 0x57f287)] }).catch(() => {});
+    await sendModLog(message.guild, embedBase('Channel lock (chat)', `<#${target.id}> by ${message.author.tag} (${parsed.action}).`, parsed.action === 'lock' ? 0xf97316 : 0x57d9a3));
   } catch (e) {
     await message.reply(`❌ Could not ${parsed.action} channel: ${String(e.message || e).slice(0, 200)}`).catch(() => {});
   }
@@ -258,6 +260,7 @@ async function handleModNL(message) {
         getDb().bans[String(link.robloxId)] = { reason, by: message.author.tag, at: Date.now() }; save();
       }
       await message.reply({ embeds: [embedBase('🔨 Banned', `${user.tag}\n${reason}${getDb().links[user.id] ? '\n+ game ban queued (linked).' : ''}`, 0xed4245)] }).catch(() => {});
+      await sendModLog(message.guild, embedBase('Banned (chat)', `${user.tag} (<@${user.id}>) by ${message.author.tag}\n${reason}`, 0xed4245));
       return true;
     }
     if (action === 'kick') {
@@ -269,6 +272,7 @@ async function handleModNL(message) {
       const link = getDb().links[user.id];
       if (link) queueCommand({ type: 'kick', robloxUsername: link.robloxUsername, robloxId: link.robloxId, reason, by: message.author.tag });
       await message.reply({ embeds: [embedBase('👢 Kicked', `${user.tag}\n${reason}`, 0xf97316)] }).catch(() => {});
+      await sendModLog(message.guild, embedBase('Kicked (chat)', `${user.tag} (<@${user.id}>) by ${message.author.tag}\n${reason}`, 0xf97316));
       return true;
     }
     if (action === 'timeout' || action === 'mute') {
@@ -280,6 +284,7 @@ async function handleModNL(message) {
       const link = getDb().links[user.id];
       if (link) queueCommand({ type: 'timeout_note', robloxUsername: link.robloxUsername, robloxId: link.robloxId, reason, minutes: durationMin, by: message.author.tag, broadcast: true });
       await message.reply({ embeds: [embedBase('⏱️ Timed out', `${user.tag} for **${durationMin}m**\n${reason}`, 0x5aaaff)] }).catch(() => {});
+      await sendModLog(message.guild, embedBase('Timed out (chat)', `${user.tag} (<@${user.id}>) by ${message.author.tag} for **${durationMin}m**\n${reason}`, 0x5aaaff));
       return true;
     }
     if (action === 'unmute' || action === 'untimeout') {
