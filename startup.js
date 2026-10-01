@@ -10,14 +10,12 @@ let source = fs.readFileSync(indexPath, 'utf8');
 // every boot — it is intentionally removed. Do NOT re-add runtime patching
 // of the selfroles command block.
 
-// Add a friendly security explainer command.
 if (!source.includes("setName('link-safety')")) {
   const anchor = "  new SlashCommandBuilder().setName('link').setDescription('Link your Roblox account (type your Roblox username)')";
   const command = "  new SlashCommandBuilder().setName('link-safety').setDescription('Learn how safe Roblox linking works'),\n";
   if (source.includes(anchor)) source = source.replace(anchor, command + anchor);
 }
 
-// Replace the /link entry point with a reassuring, password-free version.
 const oldLink = "    if (cmd === 'link') {";
 if (!source.includes("SAFE_LINK_FLOW_INSTALLED") && source.includes(oldLink)) {
   const safeLink = "    // SAFE_LINK_FLOW_INSTALLED\n" +
@@ -48,7 +46,6 @@ if (!source.includes("SAFE_LINK_FLOW_INSTALLED") && source.includes(oldLink)) {
   source = source.replace(oldLink, safeLink + oldLink);
 }
 
-// Handle /link-safety before the normal public command handlers.
 if (!source.includes("LINK_SAFETY_HANDLER_INSTALLED")) {
   const anchor = "    // ----- PUBLIC -----";
   const handler = "    // LINK_SAFETY_HANDLER_INSTALLED\n" +
@@ -97,7 +94,7 @@ if (!source.includes("if (cmd === 'setcommand-prefix')")) {
   if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
 }
 
-// Mention replies + simple natural-language role creation
+// Mention replies + natural-language role creation
 if (!source.includes("BOT_MENTION_HANDLER_INSTALLED")) {
   const anchor = "    if (!msg.guild || msg.author.bot) return;\n";
   const insert = "    // BOT_MENTION_HANDLER_INSTALLED\n" +
@@ -171,6 +168,37 @@ if (!source.includes("if (cmd === 'set-welcome-message')")) {
     "      const user = interaction.options.getUser('user') || interaction.user;\n" +
     "      const member = interaction.guild.members.cache.get(user.id) || { user, guild: interaction.guild };\n" +
     "      return interaction.reply({ embeds: [embedBase('👋 ' + user.username + ' left', leaveMessageTemplate(member), 0x808080)] });\n" +
+    "    }\n";
+  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+}
+
+// Phase 3: cleaner help + modern bot branding
+if (!source.includes("setName('set-bot-theme')")) {
+  const anchor = "  new SlashCommandBuilder().setName('help').setDescription('Show all bot commands'),";
+  const insert = "  new SlashCommandBuilder().setName('set-bot-theme').setDescription('[STAFF] Set the bot accent theme color').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
+    "    .addStringOption(o => o.setName('color').setDescription('Hex color like #ff5da2').setRequired(true)),\n";
+  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+}
+
+if (!source.includes("if (cmd === 'set-bot-theme')")) {
+  const anchor = "    if (cmd === 'help') {";
+  const insert = "    if (cmd === 'set-bot-theme') {\n" +
+    "      const staff = await requireStaff(interaction);\n" +
+    "      if (!staff) return;\n" +
+    "      const input = interaction.options.getString('color', true).trim();\n" +
+    "      const valid = /^#?[0-9a-fA-F]{6}$/.test(input);\n" +
+    "      if (!valid) return interaction.reply({ content: '❌ Use a hex color like `#ff5da2` or `#5865F2`.', ephemeral: true });\n" +
+    "      const color = input.startsWith('#') ? input : '#' + input;\n" +
+    "      db.settings.botAccent = color;\n" +
+    "      save();\n" +
+    "      return interaction.reply({ content: '✅ Bot accent updated to **' + color + '**.', ephemeral: true });\n" +
+    "    }\n" +
+    "    if (cmd === 'help') {\n" +
+    "      const accent = db.settings.botAccent || '#ff5da2';\n" +
+    "      const embed = embedBase('✨ Bot Commands',\n" +
+    "        '## Core\\n**/link** — connect your Roblox account\\n**/help** — view this help menu\\n**/see-rcommands** — private Roblox command list\\n\\n## Community\\n**/rules** — read the server rules\\n**/profile** — check a profile\\n**/value** — view Roblox item value\\n\\n## Staff\\n**/set-welcome-message** — customize the welcome message\\n**/set-leave-message** — customize the leave message\\n**/setcommand-prefix** — set custom command prefixes\\n**/set-bot-theme** — customize the accent color', accent)\n" +
+    "        .setFooter({ text: 'Use the bot like a normal Discord server bot.' });\n" +
+    "      return interaction.reply({ embeds: [embed], ephemeral: true });\n" +
     "    }\n";
   if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
 }
