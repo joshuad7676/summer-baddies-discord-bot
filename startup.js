@@ -65,7 +65,7 @@ if (!source.includes("setName('setcommand-prefix')")) {
   const insert = "  new SlashCommandBuilder().setName('setcommand-prefix').setDescription('[STAFF] Assign a custom prefix for a command').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
     "    .addStringOption(o => o.setName('command').setDescription('Command name without /').setRequired(true))\n" +
     "    .addStringOption(o => o.setName('prefix').setDescription('New prefix, e.g. ,s or !aa').setRequired(true)),\n" +
-    "  new SlashCommandBuilder().setName('see-rcommands').setDescription('View all Roblox commands, examples, and prefixes'),\n";
+    "  new SlashCommandBuilder().setName('see-rcommands').setDescription('View all Roblox commands, examples and prefixes'),\n";
   if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
 }
 
@@ -116,6 +116,61 @@ if (!source.includes("BOT_MENTION_HANDLER_INSTALLED")) {
     "        }\n" +
     "      }\n" +
     "      return msg.reply({ content: 'Hello! How May I Assist You?', allowedMentions: { repliedUser: false } });\n" +
+    "    }\n";
+  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+}
+
+// Phase 2: editable welcome/leave messages and better custom bot style
+if (!source.includes("PHASE2_WELCOME_CUSTOM")) {
+  const oldWelcome = "function welcomeEmbed(member) {\n  const e = baddieEmbed('🌸 Welcome, ' + member.user.username + '!',\n    `Hey baddie, welcome to **${member.guild.name}**! 💅\\n${THEME.DIV}\\n` +\n    `🔗 Link Roblox: \\`/link <RobloxUsername>\\` → type \\`!verify CODE\\` in Summer Baddies\\n` +\n    `✅ Then \\`/verify-status\\` to grab the Verified role\\n` +\n    `📜 Read \\`/rules\\` • 💰 Try \\`/coins daily\\` • 🎮 Check \\`/value\\`\\n` +\n    `${THEME.DIV}\\nHave fun cutie! 🌸`)\n    .setThumbnail(member.user.displayAvatarURL({ size: 256 }));\n  e.data.footer = { text: `🌸 Summer Baddies • Member #${member.guild.memberCount}` };\n  return e;\n}\n";
+  const newWelcome = "function formatCustomMessage(template, member) {\n  const fallback = 'Welcome **{user}** to **{server}**! 💅\\n\\nUse **/link** to connect Roblox and jump in with the crew!\\nMember count: **{membercount}**';\n  const text = String(template || fallback)\n    .replace(/\\{user\\}/gi, member.user.username)\n    .replace(/\\{server\\}/gi, member.guild.name)\n    .replace(/\\{membercount\\}/gi, String(member.guild.memberCount))\n    .replace(/\\{mention\\}/gi, `<@${member.user.id}>`);\n  return text;\n}\n\nfunction welcomeEmbed(member) {\n  const msg = formatCustomMessage(db.settings.welcomeMessage || 'Welcome **{user}** to **{server}**! 💅\\n\\nUse **/link** to connect Roblox and jump in with the crew!\\nMember count: **{membercount}**', member);\n  const e = baddieEmbed('🌸 Welcome, ' + member.user.username + '!', msg)\n    .setThumbnail(member.user.displayAvatarURL({ size: 256 }));\n  e.data.footer = { text: `🌸 Summer Baddies • Member #${member.guild.memberCount}` };\n  return e;\n}\n";
+  if (source.includes(oldWelcome)) source = source.replace(oldWelcome, newWelcome);
+}
+
+if (!source.includes("PHASE2_LEAVE_CUSTOM")) {
+  const oldLeave = "async function sendLeave(member) {\n  const chId = db.settings.leaveChannel || process.env.LEAVE_CHANNEL_ID;\n  const { ch, err } = await resolveSendChannel(chId);\n  if (!ch) { console.warn('[leave] skip:', err); return { ok: false, err }; }\n  try {\n    await ch.send({ embeds: [embedBase('👋 ' + (member.user?.username || 'Someone') + ' left', `We'll miss you baddie! 💔\\n**${member.guild.name}** now has **${member.guild.memberCount}** members. Thanks for being here!`, 0x808080)] });\n    return { ok: true };\n  } catch (e) { console.error('[leave] send failed:', e.message); return { ok: false, err: e.message }; }\n}\n";
+  const newLeave = "function leaveMessageTemplate(member) {\n  const fallback = '{user} left **{server}**. 💔\\nWe will miss them — thanks for being a part of the crew.';\n  return String(db.settings.leaveMessage || fallback)\n    .replace(/\\{user\\}/gi, member.user?.username || 'Someone')\n    .replace(/\\{server\\}/gi, member.guild.name)\n    .replace(/\\{membercount\\}/gi, String(member.guild.memberCount))\n    .replace(/\\{mention\\}/gi, `<@${member.user.id}>`);\n}\n\nasync function sendLeave(member) {\n  const chId = db.settings.leaveChannel || process.env.LEAVE_CHANNEL_ID;\n  const { ch, err } = await resolveSendChannel(chId);\n  if (!ch) { console.warn('[leave] skip:', err); return { ok: false, err }; }\n  try {\n    await ch.send({ embeds: [embedBase('👋 ' + (member.user?.username || 'Someone') + ' left', leaveMessageTemplate(member), 0x808080)] });\n    return { ok: true };\n  } catch (e) { console.error('[leave] send failed:', e.message); return { ok: false, err: e.message }; }\n}\n";
+  if (source.includes(oldLeave)) source = source.replace(oldLeave, newLeave);
+}
+
+if (!source.includes("set-welcome-message")) {
+  const anchor = "    new SlashCommandBuilder().setName('test-welcome').setDescription('[STAFF] Send a test welcome here (debug welcome)')";
+  const insert = "    new SlashCommandBuilder().setName('set-welcome-message').setDescription('[STAFF] Set the welcome message for new members').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
+    "      .addStringOption(o => o.setName('message').setDescription('Use {user}, {server}, {membercount}, {mention}').setRequired(true)),\n" +
+    "    new SlashCommandBuilder().setName('set-leave-message').setDescription('[STAFF] Set the leave message for departed members').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
+    "      .addStringOption(o => o.setName('message').setDescription('Use {user}, {server}, {membercount}, {mention}').setRequired(true)),\n" +
+    "    new SlashCommandBuilder().setName('preview-welcome').setDescription('[STAFF] Preview the welcome message').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
+    "      .addUserOption(o => o.setName('user').setDescription('User (default: you)')),\n" +
+    "    new SlashCommandBuilder().setName('preview-leave').setDescription('[STAFF] Preview the leave message').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
+    "      .addUserOption(o => o.setName('user').setDescription('User (default: you)')),\n";
+  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+}
+
+if (!source.includes("if (cmd === 'set-welcome-message')")) {
+  const anchor = "    if (cmd === 'test-welcome') {";
+  const insert = "    if (cmd === 'set-welcome-message') {\n" +
+    "      const staff = await requireStaff(interaction);\n" +
+    "      if (!staff) return;\n" +
+    "      db.settings.welcomeMessage = interaction.options.getString('message', true);\n" +
+    "      save();\n" +
+    "      return interaction.reply({ content: '✅ Welcome message updated. Use `{user}`, `{server}`, `{membercount}`, `{mention}` in the text.', ephemeral: true });\n" +
+    "    }\n" +
+    "    if (cmd === 'set-leave-message') {\n" +
+    "      const staff = await requireStaff(interaction);\n" +
+    "      if (!staff) return;\n" +
+    "      db.settings.leaveMessage = interaction.options.getString('message', true);\n" +
+    "      save();\n" +
+    "      return interaction.reply({ content: '✅ Leave message updated. Use `{user}`, `{server}`, `{membercount}`, `{mention}` in the text.', ephemeral: true });\n" +
+    "    }\n" +
+    "    if (cmd === 'preview-welcome') {\n" +
+    "      const user = interaction.options.getUser('user') || interaction.user;\n" +
+    "      const member = interaction.guild.members.cache.get(user.id) || { user, guild: interaction.guild };\n" +
+    "      return interaction.reply({ embeds: [welcomeEmbed(member)] });\n" +
+    "    }\n" +
+    "    if (cmd === 'preview-leave') {\n" +
+    "      const user = interaction.options.getUser('user') || interaction.user;\n" +
+    "      const member = interaction.guild.members.cache.get(user.id) || { user, guild: interaction.guild };\n" +
+    "      return interaction.reply({ embeds: [embedBase('👋 ' + user.username + ' left', leaveMessageTemplate(member), 0x808080)] });\n" +
     "    }\n";
   if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
 }
