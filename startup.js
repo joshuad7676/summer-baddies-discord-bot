@@ -10,12 +10,14 @@ let source = fs.readFileSync(indexPath, 'utf8');
 // every boot — it is intentionally removed. Do NOT re-add runtime patching
 // of the selfroles command block.
 
+// Add a friendly security explainer command.
 if (!source.includes("setName('link-safety')")) {
   const anchor = "  new SlashCommandBuilder().setName('link').setDescription('Link your Roblox account (type your Roblox username)')";
   const command = "  new SlashCommandBuilder().setName('link-safety').setDescription('Learn how safe Roblox linking works'),\n";
   if (source.includes(anchor)) source = source.replace(anchor, command + anchor);
 }
 
+// Replace the /link entry point with a reassuring, password-free version.
 const oldLink = "    if (cmd === 'link') {";
 if (!source.includes("SAFE_LINK_FLOW_INSTALLED") && source.includes(oldLink)) {
   const safeLink = "    // SAFE_LINK_FLOW_INSTALLED\n" +
@@ -46,12 +48,16 @@ if (!source.includes("SAFE_LINK_FLOW_INSTALLED") && source.includes(oldLink)) {
   source = source.replace(oldLink, safeLink + oldLink);
 }
 
+// Handle /link-safety before the normal public command handlers.
 if (!source.includes("LINK_SAFETY_HANDLER_INSTALLED")) {
   const anchor = "    // ----- PUBLIC -----";
+  const linkSafetyText = "**What we use:** your Roblox username and a temporary six-digit code.\\n\\n" +
+    "**What we never use:** your password, email, browser cookie, backup codes, or 2FA code.\\n\\n" +
+    "**How it works:** /link finds your public username, then you type a one-time `!verify CODE` message inside the Roblox game. The code expires after 10 minutes and is deleted after use.\\n\\n" +
+    "If anyone asks for your password or cookie, do not send it—staff and this bot will never need it.";
   const handler = "    // LINK_SAFETY_HANDLER_INSTALLED\n" +
     "    if (cmd === 'link-safety') {\n" +
-    "      return interaction.reply({ embeds: [embedBase('🛡️ Your Roblox link is safe',\n" +
-    "        '**What we use:** your Roblox username and a temporary six-digit code.\\n\\n' +\n    "        '**What we never use:** your password, email, browser cookie, backup codes, or 2FA code.\\n\\n' +\n    "        '**How it works:** /link finds your public username, then you type a one-time `!verify CODE` message inside the Roblox game. The code expires after 10 minutes and is deleted after use.\\n\\n' +\n    "        'If anyone asks for your password or cookie, do not send it—staff and this bot will never need it.', 0x57d9a3)] });\n" +
+    "      return interaction.reply({ embeds: [embedBase('🛡️ Your Roblox link is safe', '" + linkSafetyText + "', 0x57d9a3)] });\n" +
     "    }\n";
   if (source.includes(anchor)) source = source.replace(anchor, handler + anchor);
 }
@@ -80,15 +86,12 @@ if (!source.includes("if (cmd === 'setcommand-prefix')")) {
     "      return interaction.reply({ content: '✅ Prefix updated: `/' + commandName + '` can now be used with `' + customPrefix + '`. Example: `' + customPrefix + commandName + '`', ephemeral: true });\n" +
     "    }\n" +
     "    if (cmd === 'see-rcommands') {\n" +
-    "      const list = [\n" +
-    "        'server-info', 'link', 'link-safety', 'profile', 'verify-status', 'value', 'item', 'owners', 'online', 'search-weapons', 'search-skins', 'search-finishers', 'admin-abuse', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-all-tokens', 'give-all-spins'\n" +
-    "      ];\n" +
+    "      const list = ['server-info', 'link', 'link-safety', 'profile', 'verify-status', 'value', 'item', 'owners', 'online', 'search-weapons', 'search-skins', 'search-finishers', 'admin-abuse', 'game-kick', 'game-ban', 'game-unban', 'game-announce', 'game-restart', 'game-luck', 'give-all-weapon', 'give-all-skin', 'give-all-finisher', 'give-all-tokens', 'give-all-spins'];\n" +
     "      const lines = list.map(name => {\n" +
     "        const pref = (db.settings.commandPrefixes && db.settings.commandPrefixes[name]) || ',';\n" +
-    "        return `**/${name}** — try \`${pref + name}\`, \`!${name}\`, \`.${name}\` or \`?${name}\``;\n" +
+    "        return '**/' + name + '** — try `' + pref + name + '`, `!' + name + '`, `.' + name + '` or `?' + name + '`';\n" +
     "      });\n" +
-    "      const embed = embedBase('🔧 Roblox command list', lines.join('\\n').slice(0, 3000))\n" +
-    "        .setFooter({ text: 'Use /setcommand-prefix to set custom aliases' });\n" +
+    "      const embed = embedBase('🔧 Roblox command list', lines.join('\\n').slice(0, 3000)).setFooter({ text: 'Use /setcommand-prefix to set custom aliases' });\n" +
     "      return interaction.reply({ embeds: [embed], ephemeral: true });\n" +
     "    }\n";
   if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
@@ -99,7 +102,7 @@ if (!source.includes("BOT_MENTION_HANDLER_INSTALLED")) {
   const anchor = "    if (!msg.guild || msg.author.bot) return;\n";
   const insert = "    // BOT_MENTION_HANDLER_INSTALLED\n" +
     "    if (msg.mentions.has(client.user)) {\n" +
-    "      const text = msg.content.replace(/<@!?(\\d+)>/g, '').trim();\n" +
+    "      const text = msg.content.replace(/<@!(\\d+)>/g, '').trim();\n" +
     "      const lower = (text || '').toLowerCase();\n" +
     "      if (/make.*role|create.*role|new.*role/i.test(lower)) {\n" +
     "        const match = text.match(/role\\s+(?:called|named)?\\s*['\"]?([a-z0-9 _-]+)['\"]?/i);\n" +
@@ -107,7 +110,7 @@ if (!source.includes("BOT_MENTION_HANDLER_INSTALLED")) {
     "        const pink = /pink|rose|magenta|hot pink/.test(lower);\n" +
     "        try {\n" +
     "          const role = await msg.guild.roles.create({ name, color: pink ? '#ff5da2' : '#5865F2', hoist: true, mentionable: true, reason: 'Bot mention role request' });\n" +
-    "          return msg.reply({ content: `✅ I created the role **${role.name}** for you.`, allowedMentions: { repliedUser: false } });\n" +
+    "          return msg.reply({ content: '✅ I created the role **' + role.name + '** for you.', allowedMentions: { repliedUser: false } });\n" +
     "        } catch {\n" +
     "          return msg.reply({ content: '❌ I could not create that role. Check my permissions and role hierarchy.', allowedMentions: { repliedUser: false } });\n" +
     "        }\n" +
@@ -117,21 +120,38 @@ if (!source.includes("BOT_MENTION_HANDLER_INSTALLED")) {
   if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
 }
 
-// Phase 2: editable welcome/leave messages and better custom bot style
-if (!source.includes("PHASE2_WELCOME_CUSTOM")) {
-  const oldWelcome = "function welcomeEmbed(member) {\n  const e = baddieEmbed('🌸 Welcome, ' + member.user.username + '!',\n    `Hey baddie, welcome to **${member.guild.name}**! 💅\\n${THEME.DIV}\\n` +\n    `🔗 Link Roblox: \\`/link <RobloxUsername>\\` → type \\`!verify CODE\\` in Summer Baddies\\n` +\n    `✅ Then \\`/verify-status\\` to grab the Verified role\\n` +\n    `📜 Read \\`/rules\\` • 💰 Try \\`/coins daily\\` • 🎮 Check \\`/value\\`\\n` +\n    `${THEME.DIV}\\nHave fun cutie! 🌸`)\n    .setThumbnail(member.user.displayAvatarURL({ size: 256 }));\n  e.data.footer = { text: `🌸 Summer Baddies • Member #${member.guild.memberCount}` };\n  return e;\n}\n";
-  const newWelcome = "function formatCustomMessage(template, member) {\n  const fallback = 'Welcome **{user}** to **{server}**! 💅\\n\\nUse **/link** to connect Roblox and jump in with the crew!\\nMember count: **{membercount}**';\n  const text = String(template || fallback)\n    .replace(/\\{user\\}/gi, member.user.username)\n    .replace(/\\{server\\}/gi, member.guild.name)\n    .replace(/\\{membercount\\}/gi, String(member.guild.memberCount))\n    .replace(/\\{mention\\}/gi, `<@${member.user.id}>`);\n  return text;\n}\n\nfunction welcomeEmbed(member) {\n  const msg = formatCustomMessage(db.settings.welcomeMessage || 'Welcome **{user}** to **{server}**! 💅\\n\\nUse **/link** to connect Roblox and jump in with the crew!\\nMember count: **{membercount}**', member);\n  const e = baddieEmbed('🌸 Welcome, ' + member.user.username + '!', msg)\n    .setThumbnail(member.user.displayAvatarURL({ size: 256 }));\n  e.data.footer = { text: `🌸 Summer Baddies • Member #${member.guild.memberCount}` };\n  return e;\n}\n";
-  if (source.includes(oldWelcome)) source = source.replace(oldWelcome, newWelcome);
+// Phase 2: editable welcome/leave messages
+if (!source.includes("formatCustomMessage")) {
+  const anchor = "function welcomeEmbed(member) {";
+  const insert = "function formatCustomMessage(template, member) {\n" +
+    "  const fallback = 'Welcome **{user}** to **{server}**! 💅\\n\\nUse **/link** to connect Roblox and jump in with the crew!\\nMember count: **{membercount}**';\n" +
+    "  const text = String(template || fallback)\n" +
+    "    .replace(/{user}/gi, member.user.username)\n" +
+    "    .replace(/{server}/gi, member.guild.name)\n" +
+    "    .replace(/{membercount}/gi, String(member.guild.memberCount))\n" +
+    "    .replace(/{mention}/gi, '<@' + member.user.id + '>');\n" +
+    "  return text;\n" +
+    "}\n\n" +
+    "function welcomeEmbed(member) {";
+  if (source.includes(anchor)) source = source.replace(anchor, insert);
 }
 
-if (!source.includes("PHASE2_LEAVE_CUSTOM")) {
-  const oldLeave = "async function sendLeave(member) {\n  const chId = db.settings.leaveChannel || process.env.LEAVE_CHANNEL_ID;\n  const { ch, err } = await resolveSendChannel(chId);\n  if (!ch) { console.warn('[leave] skip:', err); return { ok: false, err }; }\n  try {\n    await ch.send({ embeds: [embedBase('👋 ' + (member.user?.username || 'Someone') + ' left', `We'll miss you baddie! 💔\\n**${member.guild.name}** now has **${member.guild.memberCount}** members. Thanks for being here!`, 0x808080)] });\n    return { ok: true };\n  } catch (e) { console.error('[leave] send failed:', e.message); return { ok: false, err: e.message }; }\n}\n";
-  const newLeave = "function leaveMessageTemplate(member) {\n  const fallback = '{user} left **{server}**. 💔\\nWe will miss them — thanks for being a part of the crew.';\n  return String(db.settings.leaveMessage || fallback)\n    .replace(/\\{user\\}/gi, member.user?.username || 'Someone')\n    .replace(/\\{server\\}/gi, member.guild.name)\n    .replace(/\\{membercount\\}/gi, String(member.guild.memberCount))\n    .replace(/\\{mention\\}/gi, `<@${member.user.id}>`);\n}\n\nasync function sendLeave(member) {\n  const chId = db.settings.leaveChannel || process.env.LEAVE_CHANNEL_ID;\n  const { ch, err } = await resolveSendChannel(chId);\n  if (!ch) { console.warn('[leave] skip:', err); return { ok: false, err }; }\n  try {\n    await ch.send({ embeds: [embedBase('👋 ' + (member.user?.username || 'Someone') + ' left', leaveMessageTemplate(member), 0x808080)] });\n    return { ok: true };\n  } catch (e) { console.error('[leave] send failed:', e.message); return { ok: false, err: e.message }; }\n}\n";
-  if (source.includes(oldLeave)) source = source.replace(oldLeave, newLeave);
+if (!source.includes("leaveMessageTemplate")) {
+  const anchor = "async function sendLeave(member) {";
+  const insert = "function leaveMessageTemplate(member) {\n" +
+    "  const fallback = '{user} left **{server}**. 💔\\nWe will miss them — thanks for being a part of the crew.';\n" +
+    "  return String(db.settings.leaveMessage || fallback)\n" +
+    "    .replace(/{user}/gi, member.user?.username || 'Someone')\n" +
+    "    .replace(/{server}/gi, member.guild.name)\n" +
+    "    .replace(/{membercount}/gi, String(member.guild.memberCount))\n" +
+    "    .replace(/{mention}/gi, '<@' + member.user.id + '>');\n" +
+    "}\n\n" +
+    "async function sendLeave(member) {";
+  if (source.includes(anchor)) source = source.replace(anchor, insert);
 }
 
 if (!source.includes("set-welcome-message")) {
-  const anchor = "    new SlashCommandBuilder().setName('test-welcome').setDescription('[STAFF] Send a test welcome here (debug welcome)')";
+  const anchor = "    new SlashCommandBuilder().setName('test-welcome')";
   const insert = "    new SlashCommandBuilder().setName('set-welcome-message').setDescription('[STAFF] Set the welcome message for new members').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
     "      .addStringOption(o => o.setName('message').setDescription('Use {user}, {server}, {membercount}, {mention}').setRequired(true)),\n" +
     "    new SlashCommandBuilder().setName('set-leave-message').setDescription('[STAFF] Set the leave message for departed members').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
@@ -139,8 +159,9 @@ if (!source.includes("set-welcome-message")) {
     "    new SlashCommandBuilder().setName('preview-welcome').setDescription('[STAFF] Preview the welcome message').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
     "      .addUserOption(o => o.setName('user').setDescription('User (default: you)')),\n" +
     "    new SlashCommandBuilder().setName('preview-leave').setDescription('[STAFF] Preview the leave message').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
-    "      .addUserOption(o => o.setName('user').setDescription('User (default: you)')),\n";
-  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+    "      .addUserOption(o => o.setName('user').setDescription('User (default: you)')),\n" +
+    "    new SlashCommandBuilder().setName('test-welcome')";
+  if (source.includes(anchor)) source = source.replace(anchor, insert);
 }
 
 if (!source.includes("if (cmd === 'set-welcome-message')")) {
@@ -168,16 +189,18 @@ if (!source.includes("if (cmd === 'set-welcome-message')")) {
     "      const user = interaction.options.getUser('user') || interaction.user;\n" +
     "      const member = interaction.guild.members.cache.get(user.id) || { user, guild: interaction.guild };\n" +
     "      return interaction.reply({ embeds: [embedBase('👋 ' + user.username + ' left', leaveMessageTemplate(member), 0x808080)] });\n" +
-    "    }\n";
-  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+    "    }\n" +
+    "    if (cmd === 'test-welcome') {";
+  if (source.includes(anchor)) source = source.replace(anchor, insert);
 }
 
-// Phase 3: cleaner help + modern bot branding
-if (!source.includes("setName('set-bot-theme')")) {
-  const anchor = "  new SlashCommandBuilder().setName('help').setDescription('Show all bot commands'),";
+// Phase 3: bot theme + cleaner help
+if (!source.includes("set-bot-theme")) {
+  const anchor = "  new SlashCommandBuilder().setName('help')";
   const insert = "  new SlashCommandBuilder().setName('set-bot-theme').setDescription('[STAFF] Set the bot accent theme color').setDefaultMemberPermissions(ADMIN_PERMS).setDMPermission(false)\n" +
-    "    .addStringOption(o => o.setName('color').setDescription('Hex color like #ff5da2').setRequired(true)),\n";
-  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+    "    .addStringOption(o => o.setName('color').setDescription('Hex color like #ff5da2').setRequired(true)),\n" +
+    "  new SlashCommandBuilder().setName('help')";
+  if (source.includes(anchor)) source = source.replace(anchor, insert);
 }
 
 if (!source.includes("if (cmd === 'set-bot-theme')")) {
@@ -193,14 +216,8 @@ if (!source.includes("if (cmd === 'set-bot-theme')")) {
     "      save();\n" +
     "      return interaction.reply({ content: '✅ Bot accent updated to **' + color + '**.', ephemeral: true });\n" +
     "    }\n" +
-    "    if (cmd === 'help') {\n" +
-    "      const accent = db.settings.botAccent || '#ff5da2';\n" +
-    "      const embed = embedBase('✨ Bot Commands',\n" +
-    "        '## Core\\n**/link** — connect your Roblox account\\n**/help** — view this help menu\\n**/see-rcommands** — private Roblox command list\\n\\n## Community\\n**/rules** — read the server rules\\n**/profile** — check a profile\\n**/value** — view Roblox item value\\n\\n## Staff\\n**/set-welcome-message** — customize the welcome message\\n**/set-leave-message** — customize the leave message\\n**/setcommand-prefix** — set custom command prefixes\\n**/set-bot-theme** — customize the accent color', accent)\n" +
-    "        .setFooter({ text: 'Use the bot like a normal Discord server bot.' });\n" +
-    "      return interaction.reply({ embeds: [embed], ephemeral: true });\n" +
-    "    }\n";
-  if (source.includes(anchor)) source = source.replace(anchor, insert + anchor);
+    "    if (cmd === 'help') {";
+  if (source.includes(anchor)) source = source.replace(anchor, insert);
 }
 
 fs.writeFileSync(indexPath, source);
